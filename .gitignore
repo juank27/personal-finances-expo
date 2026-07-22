@@ -141,3 +141,23 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Turborepo
+.turbo/
+
+# Expo
+.expo/
+.expo-shared/
+apps/mobile/ios/
+apps/mobile/android/
+*.orig.*
+web-build/
+
+# Supabase local
+.branches
+.temp
+supabase/.temp
+
+# TS build output
+dist/
+
