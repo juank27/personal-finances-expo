@@ -33,6 +33,20 @@ export function useArchiveCategory() {
         method: "PATCH",
         body: JSON.stringify(input),
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: categoriesKey }),
+    // Remove the archived row from cache immediately so the list re-renders without it and
+    // the row's Reanimated `exiting` animation has something to animate against.
+    onMutate: async ({ id, input }) => {
+      if (!input.archived) return undefined;
+      await queryClient.cancelQueries({ queryKey: categoriesKey });
+      const previous = queryClient.getQueryData<Category[]>(categoriesKey);
+      queryClient.setQueryData<Category[]>(categoriesKey, (old) =>
+        old?.filter((category) => category.id !== id)
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(categoriesKey, context.previous);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: categoriesKey }),
   });
 }

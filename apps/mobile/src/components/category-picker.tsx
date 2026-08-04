@@ -1,7 +1,9 @@
 import type { TransactionType } from "@finanzas/shared";
-import { Pressable, ScrollView, Text } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 
+import { CategoryBadge } from "@/components/category-badge";
 import { useCategories } from "@/hooks/use-categories";
+import { cn } from "@/lib/utils";
 
 interface CategoryPickerProps {
   type: TransactionType;
@@ -14,11 +16,11 @@ export function CategoryPicker({ type, value, onChange }: CategoryPickerProps) {
   const filtered = categories?.filter((category) => category.type === type) ?? [];
 
   if (isLoading) {
-    return <Text className="text-gray-500">Cargando categorías…</Text>;
+    return <Text className="text-muted-foreground">Cargando categorías…</Text>;
   }
 
   if (filtered.length === 0) {
-    return <Text className="text-gray-500">No hay categorías de este tipo todavía.</Text>;
+    return <Text className="text-muted-foreground">No hay categorías de este tipo todavía.</Text>;
   }
 
   return (
@@ -33,11 +35,15 @@ export function CategoryPicker({ type, value, onChange }: CategoryPickerProps) {
           <Pressable
             key={category.id}
             onPress={() => onChange(category.id)}
-            className={`rounded-full border px-4 py-2 ${
-              selected ? "border-black bg-black" : "border-gray-300 bg-white"
-            }`}
+            className={cn(
+              "flex-row items-center gap-2 rounded-full border py-1.5 pl-1.5 pr-4",
+              selected ? "border-primary bg-primary/10" : "border-border bg-card"
+            )}
           >
-            <Text className={selected ? "text-white" : "text-black"}>{category.name}</Text>
+            <CategoryBadge categoryId={category.id} icon={category.icon} size="sm" />
+            <Text className={cn(selected ? "font-semibold text-primary" : "text-foreground")}>
+              {category.name}
+            </Text>
           </Pressable>
         );
       })}

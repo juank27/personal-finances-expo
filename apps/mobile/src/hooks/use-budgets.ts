@@ -33,6 +33,21 @@ export function useDeleteBudget() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => apiFetch<void>(`/budgets/${id}`, { method: "DELETE" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: budgetsKey }),
+    // Remove the row from cache immediately so the list re-renders without it and the
+    // row's Reanimated `exiting` animation has something to animate against — waiting for
+    // the invalidate+refetch round trip would just make the row disappear with no transition.
+    onMutate: async (id: string) => {
+      await queryClient.cancelQueries({ queryKey: budgetsKey });
+      const previous = queryClient.getQueryData<BudgetWithProgress[]>(budgetsKey);
+      queryClient.setQueryData<BudgetWithProgress[]>(
+        budgetsKey,
+        (old) => old?.filter((budget) => budget.id !== id)
+      );
+      return { previous };
+    },
+    onError: (_err, _id, context) => {
+      if (context?.previous) queryClient.setQueryData(budgetsKey, context.previous);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: budgetsKey }),
   });
 }

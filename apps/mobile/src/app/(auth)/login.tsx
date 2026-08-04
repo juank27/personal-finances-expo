@@ -1,56 +1,82 @@
+import { useForm } from "@tanstack/react-form";
 import { Link } from "expo-router";
 import { useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { Text, View } from "react-native";
+import Animated, { FadeIn, FadeInDown, FadeInUp, FadeOut } from "react-native-reanimated";
+import { z } from "zod";
 
+import { FormField } from "@/components/form-field";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
 
-export default function Login() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+const emailSchema = z.string().email({ message: "Correo inválido" });
+const passwordSchema = z.string().min(6, { message: "Mínimo 6 caracteres" });
 
-  async function handleSubmit() {
-    setError(null);
-    setIsSubmitting(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setIsSubmitting(false);
-    if (error) setError(error.message);
-  }
+export default function Login() {
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const form = useForm({
+    defaultValues: { email: "", password: "" },
+    onSubmit: async ({ value }) => {
+      setFormError(null);
+      const { error } = await supabase.auth.signInWithPassword(value);
+      if (error) setFormError(error.message);
+    },
+  });
 
   return (
-    <View className="flex-1 justify-center gap-4 bg-white px-6">
-      <Text className="mb-2 text-3xl font-bold">Iniciar sesión</Text>
+    <View className="flex-1 justify-center gap-4 bg-background px-6">
+      <Animated.View entering={FadeInDown.duration(400)}>
+        <Text className="mb-2 text-3xl font-bold text-foreground">Iniciar sesión</Text>
+      </Animated.View>
 
-      <TextInput
-        className="rounded-lg border border-gray-300 px-4 py-3"
-        placeholder="Correo"
-        autoCapitalize="none"
-        keyboardType="email-address"
-        value={email}
-        onChangeText={setEmail}
-      />
-      <TextInput
-        className="rounded-lg border border-gray-300 px-4 py-3"
-        placeholder="Contraseña"
-        secureTextEntry
-        value={password}
-        onChangeText={setPassword}
-      />
+      <Animated.View entering={FadeInUp.delay(150).duration(400)}>
+        <form.Field name="email" validators={{ onChange: emailSchema }}>
+          {(field) => (
+            <FormField label="Correo" error={field.state.meta.errors[0]?.message}>
+              <Input
+                autoCapitalize="none"
+                keyboardType="email-address"
+                value={field.state.value}
+                onChangeText={field.handleChange}
+                onBlur={field.handleBlur}
+              />
+            </FormField>
+          )}
+        </form.Field>
+      </Animated.View>
 
-      {error ? <Text className="text-red-600">{error}</Text> : null}
+      <Animated.View entering={FadeInUp.delay(210).duration(400)}>
+        <form.Field name="password" validators={{ onChange: passwordSchema }}>
+          {(field) => (
+            <FormField label="Contraseña" error={field.state.meta.errors[0]?.message}>
+              <Input
+                secureTextEntry
+                value={field.state.value}
+                onChangeText={field.handleChange}
+                onBlur={field.handleBlur}
+              />
+            </FormField>
+          )}
+        </form.Field>
+      </Animated.View>
 
-      <Pressable
-        className="rounded-lg bg-black py-3"
-        disabled={isSubmitting}
-        onPress={handleSubmit}
-      >
-        <Text className="text-center font-semibold text-white">
-          {isSubmitting ? "Ingresando…" : "Ingresar"}
-        </Text>
-      </Pressable>
+      {formError ? (
+        <Animated.View entering={FadeIn} exiting={FadeOut}>
+          <Text className="text-danger">{formError}</Text>
+        </Animated.View>
+      ) : null}
 
-      <Link href="/signup" className="text-center text-blue-600">
+      <Animated.View entering={FadeInUp.delay(270).duration(400)}>
+        <form.Subscribe selector={(state) => state.isSubmitting}>
+          {(isSubmitting) => (
+            <Button title="Ingresar" loading={isSubmitting} onPress={form.handleSubmit} />
+          )}
+        </form.Subscribe>
+      </Animated.View>
+
+      <Link href="/signup" className="text-center text-primary">
         ¿No tienes cuenta? Regístrate
       </Link>
     </View>

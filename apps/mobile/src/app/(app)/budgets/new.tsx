@@ -1,83 +1,122 @@
 import type { BudgetPeriod } from "@finanzas/shared";
 import { createBudgetSchema } from "@finanzas/validators";
+import { Ionicons } from "@expo/vector-icons";
+import { useForm } from "@tanstack/react-form";
 import { router } from "expo-router";
 import { useState } from "react";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { ScrollView, Text } from "react-native";
+import { z } from "zod";
 
-import { Button } from "@/components/button";
 import { CategoryPicker } from "@/components/category-picker";
+import { FormField } from "@/components/form-field";
+import { SegmentedControl } from "@/components/segmented-control";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { useCreateBudget } from "@/hooks/use-budgets";
 import { getCurrentPeriodRange } from "@/lib/date";
 
+const PERIOD_OPTIONS: { label: string; value: BudgetPeriod }[] = [
+  { label: "Mensual", value: "monthly" },
+  { label: "Semanal", value: "weekly" },
+];
+
+// createBudgetSchema uses z.coerce.number() for amount_limit, whose Standard Schema input
+// type is `number` — incompatible with a string-bound TextInput field's onChange validator.
+// This string-typed mirror is only for inline UX feedback; the real createBudgetSchema.parse()
+// at submit time (with coercion) remains the actual source of truth.
+const amountLimitFieldSchema = z
+  .string()
+  .refine((v) => Number(v) > 0, { message: "Debe ser un número positivo" });
+
 export default function NewBudget() {
-  const [period, setPeriod] = useState<BudgetPeriod>("monthly");
-  const [categoryId, setCategoryId] = useState<string | null>(null);
-  const [amountLimit, setAmountLimit] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
   const createBudget = useCreateBudget();
-  const range = getCurrentPeriodRange(period);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  function handleSubmit() {
-    const parsed = createBudgetSchema.safeParse({
-      category_id: categoryId,
-      amount_limit: amountLimit,
-      period,
-      start_date: range.start_date,
-      end_date: range.end_date,
-    });
-
-    if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? "Datos inválidos");
-      return;
-    }
-
-    setError(null);
-    createBudget.mutate(parsed.data, {
-      onSuccess: () => router.back(),
-      onError: (err) => setError(err instanceof Error ? err.message : "Error al crear"),
-    });
-  }
+  const form = useForm({
+    defaultValues: {
+      category_id: "",
+      amount_limit: "",
+      period: "monthly" as BudgetPeriod,
+    },
+    onSubmit: async ({ value }) => {
+      setFormError(null);
+      try {
+        const range = getCurrentPeriodRange(value.period);
+        const parsed = createBudgetSchema.parse({
+          category_id: value.category_id,
+          amount_limit: value.amount_limit,
+          period: value.period,
+          start_date: range.start_date,
+          end_date: range.end_date,
+        });
+        await createBudget.mutateAsync(parsed);
+        router.back();
+      } catch (err) {
+        setFormError(err instanceof z.ZodError ? err.issues[0].message : "Error al crear");
+      }
+    },
+  });
 
   return (
-    <ScrollView className="flex-1 bg-white px-6 pt-6" contentContainerClassName="gap-4 pb-10">
-      <Text className="text-lg font-semibold">Categoría</Text>
-      <CategoryPicker type="expense" value={categoryId} onChange={setCategoryId} />
+    <ScrollView
+      className="flex-1 bg-background px-6 pt-6"
+      contentContainerClassName="gap-4 pb-10"
+    >
+      <form.Field name="category_id">
+        {(field) => (
+          <FormField label="Categoría">
+            <CategoryPicker
+              type="expense"
+              value={field.state.value || null}
+              onChange={field.handleChange}
+            />
+          </FormField>
+        )}
+      </form.Field>
 
-      <TextInput
-        className="rounded-lg border border-gray-300 px-4 py-3"
-        placeholder="Límite (COP)"
-        keyboardType="decimal-pad"
-        value={amountLimit}
-        onChangeText={setAmountLimit}
-      />
+      <form.Field name="amount_limit" validators={{ onChange: amountLimitFieldSchema }}>
+        {(field) => (
+          <FormField label="Límite (COP)" error={field.state.meta.errors[0]?.message}>
+            <Input
+              keyboardType="decimal-pad"
+              value={field.state.value}
+              onChangeText={field.handleChange}
+              onBlur={field.handleBlur}
+            />
+          </FormField>
+        )}
+      </form.Field>
 
-      <View className="flex-row gap-2">
-        <Pressable
-          onPress={() => setPeriod("monthly")}
-          className={`flex-1 rounded-lg border py-2 ${period === "monthly" ? "border-black bg-black" : "border-gray-300"}`}
-        >
-          <Text className={`text-center ${period === "monthly" ? "text-white" : "text-black"}`}>
-            Mensual
-          </Text>
-        </Pressable>
-        <Pressable
-          onPress={() => setPeriod("weekly")}
-          className={`flex-1 rounded-lg border py-2 ${period === "weekly" ? "border-black bg-black" : "border-gray-300"}`}
-        >
-          <Text className={`text-center ${period === "weekly" ? "text-white" : "text-black"}`}>
-            Semanal
-          </Text>
-        </Pressable>
-      </View>
+      <form.Field name="period">
+        {(field) => (
+          <FormField label="Período">
+            <SegmentedControl
+              options={PERIOD_OPTIONS}
+              value={field.state.value}
+              onChange={field.handleChange}
+            />
+          </FormField>
+        )}
+      </form.Field>
 
-      <Text className="text-gray-500">
-        Período: {range.start_date} a {range.end_date}
-      </Text>
+      <form.Subscribe selector={(state) => state.values.period}>
+        {(period) => {
+          const range = getCurrentPeriodRange(period);
+          return (
+            <Card className="flex-row items-center gap-2 bg-muted">
+              <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+              <Text className="text-sm text-muted-foreground">
+                Del {range.start_date} al {range.end_date}
+              </Text>
+            </Card>
+          );
+        }}
+      </form.Subscribe>
 
-      {error ? <Text className="text-red-600">{error}</Text> : null}
+      {formError ? <Text className="text-danger">{formError}</Text> : null}
 
-      <Button title="Guardar" loading={createBudget.isPending} onPress={handleSubmit} />
+      <Button title="Guardar" loading={createBudget.isPending} onPress={form.handleSubmit} />
     </ScrollView>
   );
 }

@@ -1,33 +1,43 @@
-import type { Transaction } from "@finanzas/shared";
+import type { Category, Transaction } from "@finanzas/shared";
+import { Ionicons } from "@expo/vector-icons";
 import { Link } from "expo-router";
+import { useColorScheme } from "nativewind";
 import { useMemo, useState } from "react";
-import { Alert, FlatList, Pressable, Text, View } from "react-native";
+import { Alert, FlatList, Pressable, RefreshControl, Text, View } from "react-native";
+import Animated, { FadeInDown, FadeOutLeft, LinearTransition } from "react-native-reanimated";
 
+import { AmountText } from "@/components/amount-text";
+import { CategoryBadge } from "@/components/category-badge";
+import { SegmentedControl } from "@/components/segmented-control";
+import { Button } from "@/components/ui/button";
 import { useCategories } from "@/hooks/use-categories";
 import {
   useDeleteTransaction,
   useTransactions,
   type TransactionFilters,
 } from "@/hooks/use-transactions";
-import { formatCOP } from "@/lib/currency";
+import { THEME_COLORS } from "@/lib/theme-colors";
 
-const FILTERS: { label: string; value: TransactionFilters["type"] }[] = [
-  { label: "Todos", value: undefined },
+type FilterValue = NonNullable<TransactionFilters["type"]> | "all";
+
+const FILTER_OPTIONS: { label: string; value: FilterValue }[] = [
+  { label: "Todos", value: "all" },
   { label: "Ingresos", value: "income" },
   { label: "Gastos", value: "expense" },
 ];
 
 export default function TransactionsList() {
-  const [type, setType] = useState<TransactionFilters["type"]>(undefined);
+  const { colorScheme } = useColorScheme();
+  const theme = THEME_COLORS[colorScheme ?? "light"];
+  const [filter, setFilter] = useState<FilterValue>("all");
   const { data: categories } = useCategories();
-  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useTransactions({
-    type,
-  });
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isRefetching, refetch } =
+    useTransactions({ type: filter === "all" ? undefined : filter });
   const deleteTransaction = useDeleteTransaction();
 
   const categoryById = useMemo(() => {
-    const map = new Map<string, string>();
-    categories?.forEach((category) => map.set(category.id, category.name));
+    const map = new Map<string, Category>();
+    categories?.forEach((category) => map.set(category.id, category));
     return map;
   }, [categories]);
 
@@ -45,73 +55,75 @@ export default function TransactionsList() {
   }
 
   return (
-    <View className="flex-1 bg-white px-6 pt-4">
-      <View className="mb-4 flex-row gap-2">
-        {FILTERS.map((filter) => (
-          <Pressable
-            key={filter.label}
-            onPress={() => setType(filter.value)}
-            className={`flex-1 rounded-lg border py-2 ${
-              type === filter.value ? "border-black bg-black" : "border-gray-300"
-            }`}
-          >
-            <Text className={`text-center ${type === filter.value ? "text-white" : "text-black"}`}>
-              {filter.label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+    <View className="flex-1 bg-background px-6 pt-4">
+      <SegmentedControl options={FILTER_OPTIONS} value={filter} onChange={setFilter} className="mb-4" />
 
       <Link href="/transactions/new" asChild>
-        <Pressable className="mb-4 rounded-lg bg-black py-3">
-          <Text className="text-center font-semibold text-white">+ Nueva transacción</Text>
-        </Pressable>
+        <Button title="+ Nueva transacción" className="mb-4" />
       </Link>
 
       {isLoading ? (
-        <Text className="text-gray-500">Cargando…</Text>
+        <Text className="text-muted-foreground">Cargando…</Text>
       ) : transactions.length === 0 ? (
-        <Text className="text-gray-500">No hay transacciones todavía.</Text>
+        <Animated.View
+          entering={FadeInDown}
+          className="flex-1 items-center justify-center gap-3 pb-20"
+        >
+          <Ionicons name="receipt-outline" size={56} color={theme.track} />
+          <Text className="text-lg font-semibold text-foreground">
+            No hay transacciones todavía
+          </Text>
+          <Text className="text-center text-muted-foreground">
+            Registra tu primer ingreso o gasto para empezar.
+          </Text>
+        </Animated.View>
       ) : (
-        <FlatList
-          data={transactions}
-          keyExtractor={(item) => item.id}
-          onEndReached={() => hasNextPage && fetchNextPage()}
-          onEndReachedThreshold={0.4}
-          ListFooterComponent={
-            isFetchingNextPage ? (
-              <Text className="py-4 text-center text-gray-500">Cargando más…</Text>
-            ) : null
-          }
-          renderItem={({ item }) => (
-            <View className="flex-row items-center justify-between border-b border-gray-100 py-3">
-              <View>
-                <Text className="font-medium">
-                  {categoryById.get(item.category_id) ?? "Sin categoría"}
-                </Text>
-                <Text className="text-gray-500">
-                  {item.date}
-                  {item.note ? ` · ${item.note}` : ""}
-                </Text>
-              </View>
-              <View className="flex-row items-center gap-3">
-                <Text
-                  className={
-                    item.type === "income"
-                      ? "font-semibold text-green-600"
-                      : "font-semibold text-red-600"
-                  }
+        <Animated.View layout={LinearTransition} className="flex-1">
+          <FlatList
+            data={transactions}
+            keyExtractor={(item) => item.id}
+            onEndReached={() => hasNextPage && fetchNextPage()}
+            onEndReachedThreshold={0.4}
+            refreshControl={
+              <RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} />
+            }
+            ListFooterComponent={
+              isFetchingNextPage ? (
+                <Text className="py-4 text-center text-muted-foreground">Cargando más…</Text>
+              ) : null
+            }
+            renderItem={({ item, index }) => {
+              const category = categoryById.get(item.category_id);
+              return (
+                <Animated.View
+                  entering={FadeInDown.delay(Math.min(index, 8) * 40)}
+                  exiting={FadeOutLeft}
+                  layout={LinearTransition}
+                  className="flex-row items-center justify-between border-b border-border py-3"
                 >
-                  {item.type === "income" ? "+" : "-"}
-                  {formatCOP(item.amount)}
-                </Text>
-                <Pressable onPress={() => handleDelete(item)}>
-                  <Text className="text-red-600">✕</Text>
-                </Pressable>
-              </View>
-            </View>
-          )}
-        />
+                  <View className="flex-1 flex-row items-center gap-3">
+                    <CategoryBadge categoryId={item.category_id} icon={category?.icon ?? null} />
+                    <View className="flex-1">
+                      <Text className="font-medium text-foreground" numberOfLines={1}>
+                        {category?.name ?? "Sin categoría"}
+                      </Text>
+                      <Text className="text-xs text-muted-foreground" numberOfLines={1}>
+                        {item.date}
+                        {item.note ? ` · ${item.note}` : ""}
+                      </Text>
+                    </View>
+                  </View>
+                  <View className="flex-row items-center gap-3">
+                    <AmountText amount={item.amount} type={item.type} />
+                    <Pressable onPress={() => handleDelete(item)}>
+                      <Ionicons name="trash-outline" size={18} color={theme.track} />
+                    </Pressable>
+                  </View>
+                </Animated.View>
+              );
+            }}
+          />
+        </Animated.View>
       )}
     </View>
   );

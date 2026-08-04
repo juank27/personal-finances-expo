@@ -50,11 +50,41 @@ export function useCreateTransaction() {
   });
 }
 
+interface TransactionsPage {
+  pages: Paginated<Transaction>[];
+  pageParams: unknown[];
+}
+
 export function useDeleteTransaction() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => apiFetch<void>(`/transactions/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
+    // Remove the row from every cached transactions query (any filter) immediately, so the
+    // FlatList re-renders without it and the row's Reanimated `exiting` animation has
+    // something to animate against — waiting for invalidate+refetch would skip the transition.
+    onMutate: async (id: string) => {
+      await queryClient.cancelQueries({ queryKey: ["transactions"] });
+      const previous = queryClient.getQueriesData<TransactionsPage>({ queryKey: ["transactions"] });
+
+      queryClient.setQueriesData<TransactionsPage>({ queryKey: ["transactions"] }, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page) => ({
+            ...page,
+            items: page.items.filter((item) => item.id !== id),
+          })),
+        };
+      });
+
+      return { previous };
+    },
+    onError: (_err, _id, context) => {
+      context?.previous.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data);
+      });
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
       queryClient.invalidateQueries({ queryKey: budgetsKey });
     },

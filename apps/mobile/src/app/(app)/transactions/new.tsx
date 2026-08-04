@@ -1,106 +1,143 @@
 import type { TransactionType } from "@finanzas/shared";
 import { createTransactionSchema } from "@finanzas/validators";
+import { Ionicons } from "@expo/vector-icons";
+import { useForm } from "@tanstack/react-form";
 import { router } from "expo-router";
 import { useState } from "react";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
+import { z } from "zod";
 
-import { Button } from "@/components/button";
 import { CategoryPicker } from "@/components/category-picker";
+import { FormField } from "@/components/form-field";
+import { SegmentedControl } from "@/components/segmented-control";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useCreateTransaction } from "@/hooks/use-transactions";
 import { todayISODate } from "@/lib/date";
 
+const TYPE_OPTIONS: { label: string; value: TransactionType }[] = [
+  { label: "Gasto", value: "expense" },
+  { label: "Ingreso", value: "income" },
+];
+
+// Mirrors createTransactionSchema's coerced `amount` field but with a string input type, to
+// stay compatible with a string-bound TextInput's onChange validator (see budgets/new.tsx).
+const amountFieldSchema = z
+  .string()
+  .refine((v) => Number(v) > 0, { message: "Debe ser un número positivo" });
+
+const dateFieldSchema = createTransactionSchema.shape.date;
+
 export default function NewTransaction() {
-  const [type, setType] = useState<TransactionType>("expense");
-  const [categoryId, setCategoryId] = useState<string | null>(null);
-  const [amount, setAmount] = useState("");
-  const [date, setDate] = useState(todayISODate());
-  const [note, setNote] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
   const createTransaction = useCreateTransaction();
+  const [formError, setFormError] = useState<string | null>(null);
 
-  function handleTypeChange(newType: TransactionType) {
-    setType(newType);
-    setCategoryId(null); // the category list changes with type, previous selection no longer valid
-  }
-
-  function handleSubmit() {
-    const parsed = createTransactionSchema.safeParse({
-      category_id: categoryId,
-      amount,
-      type,
-      date,
-      note: note || undefined,
-    });
-
-    if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? "Datos inválidos");
-      return;
-    }
-
-    setError(null);
-    createTransaction.mutate(parsed.data, {
-      onSuccess: () => router.back(),
-      onError: (err) => setError(err instanceof Error ? err.message : "Error al crear"),
-    });
-  }
+  const form = useForm({
+    defaultValues: {
+      type: "expense" as TransactionType,
+      category_id: "",
+      amount: "",
+      date: todayISODate(),
+      note: "",
+    },
+    onSubmit: async ({ value }) => {
+      setFormError(null);
+      try {
+        const parsed = createTransactionSchema.parse({
+          category_id: value.category_id,
+          amount: value.amount,
+          type: value.type,
+          date: value.date,
+          note: value.note || undefined,
+        });
+        await createTransaction.mutateAsync(parsed);
+        router.back();
+      } catch (err) {
+        setFormError(err instanceof z.ZodError ? err.issues[0].message : "Error al crear");
+      }
+    },
+  });
 
   return (
-    <ScrollView className="flex-1 bg-white px-6 pt-6" contentContainerClassName="gap-4 pb-10">
-      <View className="flex-row gap-2">
-        <Pressable
-          onPress={() => handleTypeChange("expense")}
-          className={`flex-1 rounded-lg border py-2 ${type === "expense" ? "border-black bg-black" : "border-gray-300"}`}
-        >
-          <Text className={`text-center ${type === "expense" ? "text-white" : "text-black"}`}>
-            Gasto
-          </Text>
-        </Pressable>
-        <Pressable
-          onPress={() => handleTypeChange("income")}
-          className={`flex-1 rounded-lg border py-2 ${type === "income" ? "border-black bg-black" : "border-gray-300"}`}
-        >
-          <Text className={`text-center ${type === "income" ? "text-white" : "text-black"}`}>
-            Ingreso
-          </Text>
-        </Pressable>
-      </View>
+    <ScrollView
+      className="flex-1 bg-background px-6 pt-6"
+      contentContainerClassName="gap-4 pb-10"
+    >
+      <form.Field name="type">
+        {(field) => (
+          <SegmentedControl
+            options={TYPE_OPTIONS}
+            value={field.state.value}
+            onChange={(value) => {
+              field.handleChange(value);
+              form.setFieldValue("category_id", "");
+            }}
+          />
+        )}
+      </form.Field>
 
-      <CategoryPicker type={type} value={categoryId} onChange={setCategoryId} />
+      <form.Subscribe selector={(state) => state.values.type}>
+        {(type) => (
+          <form.Field name="category_id">
+            {(field) => (
+              <FormField label="Categoría">
+                <CategoryPicker
+                  type={type}
+                  value={field.state.value || null}
+                  onChange={field.handleChange}
+                />
+              </FormField>
+            )}
+          </form.Field>
+        )}
+      </form.Subscribe>
 
-      <TextInput
-        className="rounded-lg border border-gray-300 px-4 py-3"
-        placeholder="Monto (COP)"
-        keyboardType="decimal-pad"
-        value={amount}
-        onChangeText={setAmount}
-      />
+      <form.Field name="amount" validators={{ onChange: amountFieldSchema }}>
+        {(field) => (
+          <FormField label="Monto (COP)" error={field.state.meta.errors[0]?.message}>
+            <Input
+              className="text-2xl font-bold"
+              keyboardType="decimal-pad"
+              placeholder="0"
+              value={field.state.value}
+              onChangeText={field.handleChange}
+              onBlur={field.handleBlur}
+            />
+          </FormField>
+        )}
+      </form.Field>
 
-      <View className="flex-row items-center gap-2">
-        <TextInput
-          className="flex-1 rounded-lg border border-gray-300 px-4 py-3"
-          placeholder="YYYY-MM-DD"
-          value={date}
-          onChangeText={setDate}
-        />
-        <Pressable
-          className="rounded-lg border border-gray-300 px-4 py-3"
-          onPress={() => setDate(todayISODate())}
-        >
-          <Text>Hoy</Text>
-        </Pressable>
-      </View>
+      <form.Field name="date" validators={{ onChange: dateFieldSchema }}>
+        {(field) => (
+          <FormField label="Fecha" error={field.state.meta.errors[0]?.message}>
+            <View className="flex-row items-center gap-2">
+              <Input
+                className="flex-1"
+                value={field.state.value}
+                onChangeText={field.handleChange}
+              />
+              <Pressable
+                className="rounded-lg border border-border bg-card p-3"
+                onPress={() => field.handleChange(todayISODate())}
+              >
+                <Ionicons name="calendar-outline" size={20} color="#6B7280" />
+              </Pressable>
+            </View>
+          </FormField>
+        )}
+      </form.Field>
 
-      <TextInput
-        className="rounded-lg border border-gray-300 px-4 py-3"
-        placeholder="Nota (opcional)"
-        value={note}
-        onChangeText={setNote}
-      />
+      <form.Field name="note">
+        {(field) => (
+          <FormField label="Nota (opcional)">
+            <Input value={field.state.value} onChangeText={field.handleChange} />
+          </FormField>
+        )}
+      </form.Field>
 
-      {error ? <Text className="text-red-600">{error}</Text> : null}
+      {formError ? <Text className="text-danger">{formError}</Text> : null}
 
-      <Button title="Guardar" loading={createTransaction.isPending} onPress={handleSubmit} />
+      <Button title="Guardar" loading={createTransaction.isPending} onPress={form.handleSubmit} />
     </ScrollView>
   );
 }
