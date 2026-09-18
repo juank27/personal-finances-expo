@@ -117,7 +117,7 @@ export default function NewTransaction() {
                 onChangeText={field.handleChange}
               />
               <Pressable
-                className="rounded-lg border border-border bg-card p-3"
+                className="rounded-lg border border-border bg-card p-3 active:opacity-70"
                 onPress={() => field.handleChange(todayISODate())}
               >
                 <Ionicons name="calendar-outline" size={20} color="#6B7280" />

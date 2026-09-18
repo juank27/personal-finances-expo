@@ -79,7 +79,9 @@ export default function NewBudget() {
         {(field) => (
           <FormField label="Límite (COP)" error={field.state.meta.errors[0]?.message}>
             <Input
+              className="text-2xl font-bold"
               keyboardType="decimal-pad"
+              placeholder="0"
               value={field.state.value}
               onChangeText={field.handleChange}
               onBlur={field.handleBlur}

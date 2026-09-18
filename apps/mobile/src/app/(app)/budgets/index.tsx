@@ -2,14 +2,24 @@ import type { Category } from "@finanzas/shared";
 import { Ionicons } from "@expo/vector-icons";
 import { Link } from "expo-router";
 import { useColorScheme } from "nativewind";
-import { useMemo } from "react";
-import { Alert, FlatList, Pressable, RefreshControl, Text, View } from "react-native";
+import { useMemo, useState } from "react";
+import { FlatList, Pressable, RefreshControl, Text, View } from "react-native";
 import Animated, { FadeInUp, FadeOutLeft, LinearTransition, ZoomIn } from "react-native-reanimated";
 
 import { AmountText } from "@/components/amount-text";
 import { BudgetRing } from "@/components/budget-ring";
 import { CategoryBadge } from "@/components/category-badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useBudgets, useDeleteBudget, type BudgetWithProgress } from "@/hooks/use-budgets";
 import { useCategories } from "@/hooks/use-categories";
 import { THEME_COLORS } from "@/lib/theme-colors";
@@ -22,6 +32,7 @@ export default function BudgetsList() {
   const { data: categories } = useCategories();
   const { data: budgets, isLoading, isRefetching, refetch } = useBudgets();
   const deleteBudget = useDeleteBudget();
+  const [pendingDelete, setPendingDelete] = useState<BudgetWithProgress | null>(null);
 
   const categoryById = useMemo(() => {
     const map = new Map<string, Category>();
@@ -29,11 +40,10 @@ export default function BudgetsList() {
     return map;
   }, [categories]);
 
-  function handleDelete(budget: BudgetWithProgress) {
-    Alert.alert("Eliminar presupuesto", "¿Quieres eliminar este presupuesto?", [
-      { text: "Cancelar", style: "cancel" },
-      { text: "Eliminar", style: "destructive", onPress: () => deleteBudget.mutate(budget.id) },
-    ]);
+  function confirmDelete() {
+    if (!pendingDelete) return;
+    deleteBudget.mutate(pendingDelete.id);
+    setPendingDelete(null);
   }
 
   return (
@@ -42,8 +52,24 @@ export default function BudgetsList() {
         <Button title="+ Nuevo presupuesto" className="mb-4" />
       </Link>
 
+      <Dialog open={!!pendingDelete} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>¿Quieres eliminar este presupuesto?</DialogTitle>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" title="Cancelar" onPress={() => setPendingDelete(null)} />
+            <Button variant="destructive" title="Eliminar" onPress={confirmDelete} />
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {isLoading ? (
-        <Text className="text-muted-foreground">Cargando…</Text>
+        <View className="gap-4">
+          <Skeleton className="h-24 w-full rounded-xl" />
+          <Skeleton className="h-24 w-full rounded-xl" />
+          <Skeleton className="h-24 w-full rounded-xl" />
+        </View>
       ) : !budgets || budgets.length === 0 ? (
         <Animated.View entering={FadeInUp} className="flex-1 items-center justify-center gap-3 pb-20">
           <Ionicons name="pie-chart-outline" size={56} color={theme.track} />
@@ -70,48 +96,47 @@ export default function BudgetsList() {
                 entering={FadeInUp.delay(Math.min(index, 8) * 60)}
                 exiting={FadeOutLeft}
                 layout={LinearTransition}
-                className="mb-4 flex-row items-center gap-3 rounded-lg border border-border bg-card p-4"
+                className="mb-4"
               >
-                <BudgetRing
-                  spent={spent}
-                  limit={limit}
-                  cardBackgroundColor={theme.card}
-                  trackColor={theme.track}
-                />
+                <Card className="flex-row items-center gap-3">
+                  <BudgetRing
+                    spent={spent}
+                    limit={limit}
+                    cardBackgroundColor={theme.card}
+                    trackColor={theme.track}
+                  />
 
-                <View className="flex-1 gap-1">
-                  <View className="flex-row items-center gap-2">
-                    <CategoryBadge
-                      categoryId={item.category_id}
-                      icon={category?.icon ?? null}
-                      size="sm"
-                    />
-                    <Text className="flex-1 font-medium text-foreground" numberOfLines={1}>
-                      {category?.name ?? "Sin categoría"}
+                  <View className="flex-1 gap-1">
+                    <View className="flex-row items-center gap-2">
+                      <CategoryBadge
+                        categoryId={item.category_id}
+                        icon={category?.icon ?? null}
+                        size="sm"
+                      />
+                      <Text className="flex-1 font-medium text-foreground" numberOfLines={1}>
+                        {category?.name ?? "Sin categoría"}
+                      </Text>
+                      <Pressable onPress={() => setPendingDelete(item)} hitSlop={8}>
+                        <Ionicons name="trash-outline" size={18} color={theme.track} />
+                      </Pressable>
+                    </View>
+                    <Text className="text-xs text-muted-foreground">
+                      {PERIOD_LABELS[item.period]} · {item.start_date} a {item.end_date}
                     </Text>
-                    <Pressable onPress={() => handleDelete(item)}>
-                      <Ionicons name="trash-outline" size={18} color={theme.track} />
-                    </Pressable>
+                    <View className="flex-row items-center gap-2">
+                      <AmountText amount={spent} showSign={false} className="text-sm" />
+                      <Text className="text-sm text-muted-foreground">de</Text>
+                      <AmountText amount={limit} showSign={false} className="text-sm" />
+                      {overBudget ? (
+                        <Animated.View entering={ZoomIn}>
+                          <Badge variant="destructive">
+                            <Text className="text-xs font-semibold text-white">¡Excedido!</Text>
+                          </Badge>
+                        </Animated.View>
+                      ) : null}
+                    </View>
                   </View>
-                  <Text className="text-xs text-muted-foreground">
-                    {PERIOD_LABELS[item.period]} · {item.start_date} a {item.end_date}
-                  </Text>
-                  <View className="flex-row items-center gap-2">
-                    <AmountText amount={spent} showSign={false} className="text-sm" />
-                    <Text className="text-sm text-muted-foreground">de</Text>
-                    <AmountText amount={limit} showSign={false} className="text-sm" />
-                    {overBudget ? (
-                      <Animated.View
-                        entering={ZoomIn}
-                        className="rounded-full bg-danger px-2 py-0.5"
-                      >
-                        <Text className="text-xs font-semibold text-danger-foreground">
-                          ¡Excedido!
-                        </Text>
-                      </Animated.View>
-                    ) : null}
-                  </View>
-                </View>
+                </Card>
               </Animated.View>
             );
           }}

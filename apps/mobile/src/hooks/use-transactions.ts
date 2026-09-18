@@ -46,6 +46,7 @@ export function useCreateTransaction() {
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
       // A new transaction changes any budget's computed `spent` for its category.
       queryClient.invalidateQueries({ queryKey: budgetsKey });
+      queryClient.invalidateQueries({ queryKey: ["expense-summary"] });
     },
   });
 }
@@ -87,6 +88,7 @@ export function useDeleteTransaction() {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
       queryClient.invalidateQueries({ queryKey: budgetsKey });
+      queryClient.invalidateQueries({ queryKey: ["expense-summary"] });
     },
   });
 }
