@@ -35,9 +35,9 @@ export async function listTransactions(
       AND (${filters.to ?? null}::date IS NULL OR date <= ${filters.to ?? null})
       AND (
         ${cursor === null} OR
-        (date, id) < (${cursor?.date ?? null}::date, ${cursor?.id ?? null}::uuid)
+        (date, created_at) < (${cursor?.date ?? null}::date, ${cursor?.created_at ?? null}::timestamptz)
       )
-    ORDER BY date DESC, id DESC
+    ORDER BY date DESC, created_at DESC
     LIMIT ${pagination.limit + 1}
   `;
 
@@ -47,8 +47,22 @@ export async function listTransactions(
 
   return {
     items,
-    nextCursor: hasMore && last ? encodeCursor({ date: last.date, id: last.id }) : null,
+    nextCursor:
+      hasMore && last ? encodeCursor({ date: last.date, created_at: last.created_at }) : null,
   };
+}
+
+export async function getTransaction(userId: string, transactionId: string): Promise<Transaction> {
+  const [transaction] = await sql<Transaction[]>`
+    SELECT * FROM transactions
+    WHERE id = ${transactionId} AND user_id = ${userId} AND group_id IS NULL
+  `;
+
+  if (!transaction) {
+    throw new HttpError(404, "Transaction not found", "not_found");
+  }
+
+  return transaction;
 }
 
 export async function createTransaction(

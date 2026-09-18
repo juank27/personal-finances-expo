@@ -4,15 +4,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { useForm } from "@tanstack/react-form";
 import { router } from "expo-router";
 import { useState } from "react";
-import { ScrollView, Text } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { z } from "zod";
 
 import { CategoryPicker } from "@/components/category-picker";
+import { CurrencyInput } from "@/components/currency-input";
 import { FormField } from "@/components/form-field";
 import { SegmentedControl } from "@/components/segmented-control";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { useCreateBudget } from "@/hooks/use-budgets";
 import { getCurrentPeriodRange } from "@/lib/date";
 
@@ -38,6 +39,7 @@ export default function NewBudget() {
       category_id: "",
       amount_limit: "",
       period: "monthly" as BudgetPeriod,
+      is_recurring: true,
     },
     onSubmit: async ({ value }) => {
       setFormError(null);
@@ -49,6 +51,7 @@ export default function NewBudget() {
           period: value.period,
           start_date: range.start_date,
           end_date: range.end_date,
+          is_recurring: value.is_recurring,
         });
         await createBudget.mutateAsync(parsed);
         router.back();
@@ -78,10 +81,11 @@ export default function NewBudget() {
       <form.Field name="amount_limit" validators={{ onChange: amountLimitFieldSchema }}>
         {(field) => (
           <FormField label="Límite (COP)" error={field.state.meta.errors[0]?.message}>
-            <Input
-              keyboardType="decimal-pad"
+            <CurrencyInput
+              className="text-2xl font-bold"
+              placeholder="0"
               value={field.state.value}
-              onChangeText={field.handleChange}
+              onChangeValue={field.handleChange}
               onBlur={field.handleBlur}
             />
           </FormField>
@@ -113,6 +117,20 @@ export default function NewBudget() {
           );
         }}
       </form.Subscribe>
+
+      <form.Field name="is_recurring">
+        {(field) => (
+          <Card className="flex-row items-center justify-between gap-3">
+            <View className="flex-1 gap-1">
+              <Text className="font-medium text-foreground">Renovar automáticamente</Text>
+              <Text className="text-xs text-muted-foreground">
+                Se creará solo el siguiente período cuando este termine, con el mismo límite.
+              </Text>
+            </View>
+            <Switch checked={field.state.value} onCheckedChange={field.handleChange} />
+          </Card>
+        )}
+      </form.Field>
 
       {formError ? <Text className="text-danger">{formError}</Text> : null}
 

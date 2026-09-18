@@ -9,4 +9,5 @@ export interface Budget {
   period: BudgetPeriod;
   start_date: string;
   end_date: string;
+  is_recurring: boolean;
 }

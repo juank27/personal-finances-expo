@@ -2,6 +2,7 @@ import type { Category, TransactionType } from "@finanzas/shared";
 import { createCategorySchema } from "@finanzas/validators";
 import { Ionicons } from "@expo/vector-icons";
 import { useForm } from "@tanstack/react-form";
+import { useColorScheme } from "nativewind";
 import { useState } from "react";
 import { Alert, ScrollView, Text, View } from "react-native";
 import Animated, { FadeInDown, FadeOutRight, LinearTransition } from "react-native-reanimated";
@@ -21,6 +22,10 @@ const TYPE_OPTIONS: { label: string; value: TransactionType }[] = [
   { label: "Ingreso", value: "income" },
 ];
 
+// Raw hex mirrors of the `--danger` token (global.css) — Ionicons needs a color string,
+// not a className, so this stays in sync by hand like theme-colors.ts already does.
+const DANGER_ICON_COLOR = { light: "#EF4444", dark: "#F87171" } as const;
+
 function CategorySection({
   title,
   categories,
@@ -32,6 +37,9 @@ function CategorySection({
   userId?: string;
   onArchive: (id: string) => void;
 }) {
+  const { colorScheme } = useColorScheme();
+  const dangerColor = DANGER_ICON_COLOR[colorScheme ?? "light"];
+
   return (
     <View className="gap-2">
       <Text className="text-lg font-semibold text-foreground">{title}</Text>
@@ -44,18 +52,20 @@ function CategorySection({
             entering={FadeInDown.delay(Math.min(index, 8) * 40)}
             exiting={FadeOutRight}
             layout={LinearTransition}
-            className="flex-row items-center gap-3 rounded-lg border border-border bg-card px-4 py-3"
           >
-            <CategoryBadge categoryId={category.id} icon={category.icon} size="sm" />
-            <Text className="flex-1 text-foreground">{category.name}</Text>
-            {category.user_id === userId ? (
-              <Ionicons
-                name="archive-outline"
-                size={18}
-                color="#EF4444"
-                onPress={() => onArchive(category.id)}
-              />
-            ) : null}
+            <Card className="flex-row items-center gap-3">
+              <CategoryBadge categoryId={category.id} icon={category.icon} size="sm" />
+              <Text className="flex-1 text-foreground">{category.name}</Text>
+              {category.user_id === userId ? (
+                <Ionicons
+                  name="archive-outline"
+                  size={18}
+                  color={dangerColor}
+                  hitSlop={12}
+                  onPress={() => onArchive(category.id)}
+                />
+              ) : null}
+            </Card>
           </Animated.View>
         ))
       )}

@@ -1,7 +1,10 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useForm } from "@tanstack/react-form";
+import { LinearGradient } from "expo-linear-gradient";
 import { Link } from "expo-router";
+import { useColorScheme } from "nativewind";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import Animated, { FadeIn, FadeInDown, FadeInUp, FadeOut } from "react-native-reanimated";
 import { z } from "zod";
 
@@ -13,8 +16,16 @@ import { supabase } from "@/lib/supabase";
 const emailSchema = z.string().email({ message: "Correo inválido" });
 const passwordSchema = z.string().min(6, { message: "Mínimo 6 caracteres" });
 
+// Raw colors for the subtle background gradient — LinearGradient needs real color
+// strings, not Tailwind classNames, so this stays in sync by hand per color scheme.
+const GRADIENT_COLORS = {
+  light: ["#FFFFFF", "rgba(79,70,229,0.08)"] as const,
+  dark: ["#141416", "rgba(129,140,248,0.10)"] as const,
+};
+
 export default function Signup() {
   const [formError, setFormError] = useState<string | null>(null);
+  const { colorScheme } = useColorScheme();
 
   const form = useForm({
     defaultValues: { fullName: "", email: "", password: "" },
@@ -30,7 +41,23 @@ export default function Signup() {
   });
 
   return (
-    <View className="flex-1 justify-center gap-4 bg-background px-6">
+    <View className="flex-1 bg-background">
+      <LinearGradient
+        colors={GRADIENT_COLORS[colorScheme ?? "light"]}
+        style={StyleSheet.absoluteFill}
+      />
+      <View className="flex-1 justify-center gap-4 px-6">
+      <Animated.View entering={FadeInDown.duration(300)} className="mb-2 items-center gap-3">
+        <View className="h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+          <Ionicons
+            name="wallet-outline"
+            size={32}
+            color={colorScheme === "dark" ? "#818CF8" : "#4F46E5"}
+          />
+        </View>
+        <Text className="text-lg font-semibold text-foreground">Finanzas</Text>
+      </Animated.View>
+
       <Animated.View entering={FadeInDown.duration(400)}>
         <Text className="mb-2 text-3xl font-bold text-foreground">Crear cuenta</Text>
       </Animated.View>
@@ -93,6 +120,7 @@ export default function Signup() {
       <Link href="/login" className="text-center text-primary">
         ¿Ya tienes cuenta? Inicia sesión
       </Link>
+      </View>
     </View>
   );
 }

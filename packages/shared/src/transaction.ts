@@ -9,4 +9,5 @@ export interface Transaction {
   type: TransactionType;
   date: string;
   note: string | null;
+  created_at: string;
 }

@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useColorScheme } from "nativewind";
 import { View } from "react-native";
 
 import { getCategoryColor } from "@/lib/category-colors";
@@ -18,7 +19,8 @@ interface CategoryBadgeProps {
 }
 
 export function CategoryBadge({ categoryId, icon, size = "md" }: CategoryBadgeProps) {
-  const color = getCategoryColor(categoryId);
+  const { colorScheme } = useColorScheme();
+  const color = getCategoryColor(categoryId, colorScheme ?? "light");
   const { box, icon: iconSize } = SIZES[size];
   const iconName: IoniconName =
     icon && icon in Ionicons.glyphMap ? (icon as IoniconName) : "pricetag";

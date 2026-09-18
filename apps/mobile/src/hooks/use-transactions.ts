@@ -1,6 +1,6 @@
 import type { Paginated, Transaction } from "@finanzas/shared";
-import type { CreateTransactionInput } from "@finanzas/validators";
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { CreateTransactionInput, UpdateTransactionInput } from "@finanzas/validators";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiFetch } from "@/lib/api-client";
 import { budgetsKey } from "./use-budgets";
@@ -8,6 +8,8 @@ import { budgetsKey } from "./use-budgets";
 export interface TransactionFilters {
   category_id?: string;
   type?: "income" | "expense";
+  from?: string;
+  to?: string;
 }
 
 function transactionsKey(filters: TransactionFilters) {
@@ -18,6 +20,8 @@ function buildQuery(filters: TransactionFilters, cursor?: string) {
   const params = new URLSearchParams();
   if (filters.category_id) params.set("category_id", filters.category_id);
   if (filters.type) params.set("type", filters.type);
+  if (filters.from) params.set("from", filters.from);
+  if (filters.to) params.set("to", filters.to);
   if (cursor) params.set("cursor", cursor);
   const qs = params.toString();
   return qs ? `?${qs}` : "";
@@ -34,6 +38,31 @@ export function useTransactions(filters: TransactionFilters = {}) {
   });
 }
 
+export function useTransaction(id: string) {
+  return useQuery({
+    queryKey: ["transaction", id],
+    queryFn: () => apiFetch<{ data: Transaction }>(`/transactions/${id}`).then((res) => res.data),
+  });
+}
+
+export function useUpdateTransaction() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdateTransactionInput }) =>
+      apiFetch<{ data: Transaction }>(`/transactions/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: (_data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["transaction", id] });
+      // Editing category/amount/date changes any budget's computed `spent` for its category.
+      queryClient.invalidateQueries({ queryKey: budgetsKey });
+      queryClient.invalidateQueries({ queryKey: ["expense-summary"] });
+    },
+  });
+}
+
 export function useCreateTransaction() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -46,6 +75,7 @@ export function useCreateTransaction() {
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
       // A new transaction changes any budget's computed `spent` for its category.
       queryClient.invalidateQueries({ queryKey: budgetsKey });
+      queryClient.invalidateQueries({ queryKey: ["expense-summary"] });
     },
   });
 }
@@ -87,6 +117,7 @@ export function useDeleteTransaction() {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
       queryClient.invalidateQueries({ queryKey: budgetsKey });
+      queryClient.invalidateQueries({ queryKey: ["expense-summary"] });
     },
   });
 }

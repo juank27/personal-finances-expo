@@ -8,6 +8,8 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { z } from "zod";
 
 import { CategoryPicker } from "@/components/category-picker";
+import { CurrencyInput } from "@/components/currency-input";
+import { DatePickerDialog } from "@/components/date-picker-dialog";
 import { FormField } from "@/components/form-field";
 import { SegmentedControl } from "@/components/segmented-control";
 import { Button } from "@/components/ui/button";
@@ -31,6 +33,7 @@ const dateFieldSchema = createTransactionSchema.shape.date;
 export default function NewTransaction() {
   const createTransaction = useCreateTransaction();
   const [formError, setFormError] = useState<string | null>(null);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
 
   const form = useForm({
     defaultValues: {
@@ -95,12 +98,11 @@ export default function NewTransaction() {
       <form.Field name="amount" validators={{ onChange: amountFieldSchema }}>
         {(field) => (
           <FormField label="Monto (COP)" error={field.state.meta.errors[0]?.message}>
-            <Input
+            <CurrencyInput
               className="text-2xl font-bold"
-              keyboardType="decimal-pad"
               placeholder="0"
               value={field.state.value}
-              onChangeText={field.handleChange}
+              onChangeValue={field.handleChange}
               onBlur={field.handleBlur}
             />
           </FormField>
@@ -117,12 +119,18 @@ export default function NewTransaction() {
                 onChangeText={field.handleChange}
               />
               <Pressable
-                className="rounded-lg border border-border bg-card p-3"
-                onPress={() => field.handleChange(todayISODate())}
+                className="rounded-lg border border-border bg-card p-3 active:opacity-70"
+                onPress={() => setDatePickerOpen(true)}
               >
                 <Ionicons name="calendar-outline" size={20} color="#6B7280" />
               </Pressable>
             </View>
+            <DatePickerDialog
+              open={datePickerOpen}
+              onOpenChange={setDatePickerOpen}
+              value={field.state.value}
+              onChange={field.handleChange}
+            />
           </FormField>
         )}
       </form.Field>
