@@ -1,5 +1,5 @@
 import type { Budget } from "@finanzas/shared";
-import type { CreateBudgetInput } from "@finanzas/validators";
+import type { CreateBudgetInput, UpdateBudgetInput } from "@finanzas/validators";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiFetch } from "@/lib/api-client";
@@ -23,6 +23,18 @@ export function useCreateBudget() {
     mutationFn: (input: CreateBudgetInput) =>
       apiFetch<{ data: Budget }>("/budgets", {
         method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: budgetsKey }),
+  });
+}
+
+export function useUpdateBudget() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdateBudgetInput }) =>
+      apiFetch<{ data: Budget }>(`/budgets/${id}`, {
+        method: "PATCH",
         body: JSON.stringify(input),
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: budgetsKey }),

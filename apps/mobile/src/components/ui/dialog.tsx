@@ -105,7 +105,13 @@ function DialogContent({
 
 function DialogHeader({ className, ...props }: ViewProps) {
   return (
-    <View className={cn('flex flex-col gap-2 text-center sm:text-left', className)} {...props} />
+    // pr-6 keeps title/description text from running into the absolutely-positioned close
+    // "X" (top-4 right-4 inside the content's own p-6) — without it, a longer title reads
+    // as cramped right up against the button.
+    <View
+      className={cn('flex flex-col gap-2 pr-6 text-center sm:text-left', className)}
+      {...props}
+    />
   );
 }
 

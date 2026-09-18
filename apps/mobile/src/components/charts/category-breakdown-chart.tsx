@@ -2,11 +2,10 @@ import { useMemo } from "react";
 import { View } from "react-native";
 import { Pie, PolarChart } from "victory-native";
 
-import { AmountText } from "@/components/amount-text";
 import { CategoryBadge } from "@/components/category-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
-import { formatCOP } from "@/lib/currency";
+import { formatCOPCompact } from "@/lib/currency";
 import { THEME_COLORS, type ThemeColorScheme } from "@/lib/theme-colors";
 
 const TOP_N = 6;
@@ -102,7 +101,7 @@ export function CategoryBreakdownChart({
             pointerEvents="none"
           >
             <Text className="text-xs text-muted-foreground">Gastado</Text>
-            <Text className="text-3xl font-bold text-foreground">{formatCOP(total)}</Text>
+            <Text className="text-3xl font-bold text-foreground">{formatCOPCompact(total)}</Text>
           </View>
         </View>
       </View>
@@ -124,7 +123,9 @@ export function CategoryBreakdownChart({
                 {item.label}
               </Text>
               <Text className="text-xs text-muted-foreground">{pct}%</Text>
-              <AmountText amount={item.value} showSign={false} className="text-sm" />
+              <Text className="text-sm font-semibold text-foreground">
+                {formatCOPCompact(item.value)}
+              </Text>
             </View>
           );
         })}

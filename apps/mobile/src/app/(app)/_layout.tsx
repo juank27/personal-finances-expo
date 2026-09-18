@@ -56,10 +56,10 @@ export default function AppLayout() {
             <Ionicons name="swap-horizontal-outline" size={size} color={color} />
           ),
         }}
-        // Tapping the tab always resets its nested Stack back to the list. Without this,
-        // if the "+" FAB (or any Link) on another tab pushes `/transactions/new` onto this
-        // tab's stack and the user leaves without submitting/going back, the tab keeps
-        // showing the "new transaction" form the next time it's opened instead of the list.
+        // Tapping the tab always resets its nested Stack back to the list. Create/edit now
+        // live as root-level modals (see app/transaction/*) rather than nested screens here,
+        // so this is mostly a safety net today — kept in case something else ever pushes
+        // onto this tab's own stack and is left without navigating back.
         listeners={({ navigation }) => ({
           tabPress: () => resetTabStack(navigation, "transactions"),
         })}

@@ -1,6 +1,6 @@
 import type { Category, Transaction } from "@finanzas/shared";
 import { Ionicons } from "@expo/vector-icons";
-import { Link } from "expo-router";
+import { Link, router } from "expo-router";
 import { useColorScheme } from "nativewind";
 import { useMemo, useState } from "react";
 import { FlatList, Pressable, RefreshControl, Text, View } from "react-native";
@@ -97,7 +97,7 @@ export default function TransactionsList() {
     <View className="flex-1 bg-background px-6 pt-4">
       <SegmentedControl options={FILTER_OPTIONS} value={filter} onChange={setFilter} className="mb-4" />
 
-      <Link href="/transactions/new" asChild>
+      <Link href="/transaction/new" asChild>
         <Button title="+ Nueva transacción" className="mb-4" />
       </Link>
 
@@ -139,10 +139,17 @@ export default function TransactionsList() {
             }
             renderItem={({ item: row, index }) => {
               if (row.kind === "header") {
+                // Wrapped in Animated.View with the same `layout` as the item rows below —
+                // mixing animated and non-animated direct children under LinearTransition
+                // desyncs Reanimated's tracked layout from the real screen position, which
+                // silently breaks touch hit-testing on rows near a header (the trash icon
+                // looks like it's there but taps land on stale coordinates).
                 return (
-                  <Text className="mb-2 mt-1 text-xs font-semibold uppercase text-muted-foreground">
-                    {row.label}
-                  </Text>
+                  <Animated.View layout={LinearTransition}>
+                    <Text className="mb-2 mt-1 text-xs font-semibold uppercase text-muted-foreground">
+                      {row.label}
+                    </Text>
+                  </Animated.View>
                 );
               }
 
@@ -155,7 +162,10 @@ export default function TransactionsList() {
                   layout={LinearTransition}
                 >
                   <Card className="mb-2 flex-row items-center justify-between">
-                    <View className="flex-1 flex-row items-center gap-3">
+                    <Pressable
+                      className="flex-1 flex-row items-center gap-3"
+                      onPress={() => router.push(`/transaction/${transaction.id}`)}
+                    >
                       <CategoryBadge categoryId={transaction.category_id} icon={category?.icon ?? null} />
                       <View className="flex-1">
                         <Text className="font-medium text-foreground" numberOfLines={1}>
@@ -167,7 +177,7 @@ export default function TransactionsList() {
                           </Text>
                         ) : null}
                       </View>
-                    </View>
+                    </Pressable>
                     <View className="flex-row items-center gap-3">
                       <AmountText amount={transaction.amount} type={transaction.type} />
                       <Pressable hitSlop={12} onPress={() => setPendingDelete(transaction)}>

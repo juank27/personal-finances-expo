@@ -1,6 +1,6 @@
 import type { Category } from "@finanzas/shared";
 import { Ionicons } from "@expo/vector-icons";
-import { Link } from "expo-router";
+import { Link, router } from "expo-router";
 import { useColorScheme } from "nativewind";
 import { useMemo, useState } from "react";
 import { FlatList, Pressable, RefreshControl, Text, View } from "react-native";
@@ -99,43 +99,53 @@ export default function BudgetsList() {
                 className="mb-4"
               >
                 <Card className="flex-row items-center gap-3">
-                  <BudgetRing
-                    spent={spent}
-                    limit={limit}
-                    cardBackgroundColor={theme.card}
-                    trackColor={theme.track}
-                  />
+                  <Pressable
+                    className="flex-1 flex-row items-center gap-3"
+                    onPress={() => router.push(`/budgets/${item.id}`)}
+                  >
+                    <BudgetRing
+                      spent={spent}
+                      limit={limit}
+                      cardBackgroundColor={theme.card}
+                      trackColor={theme.track}
+                    />
 
-                  <View className="flex-1 gap-1">
-                    <View className="flex-row items-center gap-2">
-                      <CategoryBadge
-                        categoryId={item.category_id}
-                        icon={category?.icon ?? null}
-                        size="sm"
-                      />
-                      <Text className="flex-1 font-medium text-foreground" numberOfLines={1}>
-                        {category?.name ?? "Sin categoría"}
-                      </Text>
-                      <Pressable onPress={() => setPendingDelete(item)} hitSlop={8}>
-                        <Ionicons name="trash-outline" size={18} color={theme.track} />
-                      </Pressable>
+                    <View className="flex-1 gap-1">
+                      <View className="flex-row items-center gap-2">
+                        <CategoryBadge
+                          categoryId={item.category_id}
+                          icon={category?.icon ?? null}
+                          size="sm"
+                        />
+                        <Text className="flex-1 font-medium text-foreground" numberOfLines={1}>
+                          {category?.name ?? "Sin categoría"}
+                        </Text>
+                      </View>
+                      <View className="flex-row items-center gap-1">
+                        <Text className="text-xs text-muted-foreground">
+                          {PERIOD_LABELS[item.period]} · {item.start_date} a {item.end_date}
+                        </Text>
+                        {item.is_recurring ? (
+                          <Ionicons name="sync-outline" size={12} color={theme.track} />
+                        ) : null}
+                      </View>
+                      <View className="flex-row items-center gap-2">
+                        <AmountText amount={spent} showSign={false} className="text-sm" />
+                        <Text className="text-sm text-muted-foreground">de</Text>
+                        <AmountText amount={limit} showSign={false} className="text-sm" />
+                        {overBudget ? (
+                          <Animated.View entering={ZoomIn}>
+                            <Badge variant="destructive">
+                              <Text className="text-xs font-semibold text-white">¡Excedido!</Text>
+                            </Badge>
+                          </Animated.View>
+                        ) : null}
+                      </View>
                     </View>
-                    <Text className="text-xs text-muted-foreground">
-                      {PERIOD_LABELS[item.period]} · {item.start_date} a {item.end_date}
-                    </Text>
-                    <View className="flex-row items-center gap-2">
-                      <AmountText amount={spent} showSign={false} className="text-sm" />
-                      <Text className="text-sm text-muted-foreground">de</Text>
-                      <AmountText amount={limit} showSign={false} className="text-sm" />
-                      {overBudget ? (
-                        <Animated.View entering={ZoomIn}>
-                          <Badge variant="destructive">
-                            <Text className="text-xs font-semibold text-white">¡Excedido!</Text>
-                          </Badge>
-                        </Animated.View>
-                      ) : null}
-                    </View>
-                  </View>
+                  </Pressable>
+                  <Pressable onPress={() => setPendingDelete(item)} hitSlop={8}>
+                    <Ionicons name="trash-outline" size={18} color={theme.track} />
+                  </Pressable>
                 </Card>
               </Animated.View>
             );

@@ -1,6 +1,6 @@
 import type { Category } from "@finanzas/shared";
 import { Ionicons } from "@expo/vector-icons";
-import { Link } from "expo-router";
+import { Link, router } from "expo-router";
 import { useColorScheme } from "nativewind";
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
@@ -20,7 +20,7 @@ import { useCategories } from "@/hooks/use-categories";
 import { useExpenseSummary } from "@/hooks/use-expense-summary";
 import { useTransactions } from "@/hooks/use-transactions";
 import { getCategoryColor } from "@/lib/category-colors";
-import { addMonths, currentMonthString, formatMonthLabel } from "@/lib/date";
+import { addMonths, currentMonthString, formatMonthLabel, monthDateRange } from "@/lib/date";
 import { useSession } from "@/lib/session";
 import { THEME_COLORS } from "@/lib/theme-colors";
 
@@ -34,8 +34,11 @@ export default function Home() {
   const { data: budgets } = useBudgets();
   const { data: categories } = useCategories();
   const { data: summary, isFetching: isSummaryFetching } = useExpenseSummary(selectedMonth);
+  const selectedMonthRange = useMemo(() => monthDateRange(selectedMonth), [selectedMonth]);
   const { data: recentExpensesData, isLoading: isRecentExpensesLoading } = useTransactions({
     type: "expense",
+    from: selectedMonthRange.from,
+    to: selectedMonthRange.to,
   });
   const recentExpenses = (recentExpensesData?.pages[0]?.items ?? []).slice(
     0,
@@ -103,7 +106,7 @@ export default function Home() {
             <Text className="text-center text-muted-foreground">
               Registra un gasto para ver tu resumen aquí.
             </Text>
-            <Link href="/transactions/new" asChild>
+            <Link href="/transaction/new" asChild>
               <Pressable className="rounded-lg bg-primary px-4 py-2">
                 <Text className="font-semibold text-primary-foreground">Registrar gasto</Text>
               </Pressable>
@@ -132,7 +135,7 @@ export default function Home() {
             {budgetsForSelectedMonth.map((budget, index) => {
               const category = categoryById.get(budget.category_id);
               return (
-                <Link key={budget.id} href="/budgets" asChild>
+                <Link key={budget.id} href={`/budget-transactions/${budget.id}`} asChild>
                   <Pressable>
                     <Animated.View entering={FadeInRight.delay(index * 80)}>
                       <Card className="items-center gap-2 p-3">
@@ -181,19 +184,21 @@ export default function Home() {
                 key={transaction.id}
                 entering={FadeInDown.delay(200 + index * 60)}
               >
-                <Card className="flex-row items-center gap-3 p-4">
-                  <CategoryBadge categoryId={transaction.category_id} icon={category?.icon ?? null} />
-                  <View className="flex-1">
-                    <Text className="font-medium text-foreground" numberOfLines={1}>
-                      {category?.name ?? "Sin categoría"}
-                    </Text>
-                    <Text className="text-xs text-muted-foreground" numberOfLines={1}>
-                      {transaction.date}
-                      {transaction.note ? ` · ${transaction.note}` : ""}
-                    </Text>
-                  </View>
-                  <AmountText amount={transaction.amount} type={transaction.type} />
-                </Card>
+                <Pressable onPress={() => router.push(`/transaction/${transaction.id}`)}>
+                  <Card className="flex-row items-center gap-3 p-4">
+                    <CategoryBadge categoryId={transaction.category_id} icon={category?.icon ?? null} />
+                    <View className="flex-1">
+                      <Text className="font-medium text-foreground" numberOfLines={1}>
+                        {category?.name ?? "Sin categoría"}
+                      </Text>
+                      <Text className="text-xs text-muted-foreground" numberOfLines={1}>
+                        {transaction.date}
+                        {transaction.note ? ` · ${transaction.note}` : ""}
+                      </Text>
+                    </View>
+                    <AmountText amount={transaction.amount} type={transaction.type} />
+                  </Card>
+                </Pressable>
               </Animated.View>
             );
           })}
@@ -202,7 +207,7 @@ export default function Home() {
       </ScrollView>
 
       <Animated.View entering={ZoomIn.delay(300)} className="absolute bottom-6 right-6">
-        <Link href="/transactions/new" asChild>
+        <Link href="/transaction/new" asChild>
           <Pressable
             className="h-14 w-14 items-center justify-center rounded-full bg-primary active:opacity-80"
             style={{

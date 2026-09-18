@@ -10,6 +10,7 @@ import { requireAuth } from "../../middleware/auth";
 import {
   createTransaction,
   deleteTransaction,
+  getTransaction,
   listTransactions,
   updateTransaction,
 } from "./transactions.service";
@@ -25,6 +26,14 @@ transactionsRouter.get(
     const pagination = paginationQuerySchema.parse(req.query);
     const result = await listTransactions(req.userId, filters, pagination);
     res.json({ data: result });
+  })
+);
+
+transactionsRouter.get(
+  "/:id",
+  asyncHandler(async (req, res) => {
+    const transaction = await getTransaction(req.userId, req.params.id);
+    res.json({ data: transaction });
   })
 );
 

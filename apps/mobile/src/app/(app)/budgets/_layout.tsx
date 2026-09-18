@@ -20,6 +20,10 @@ export default function BudgetsLayout() {
         name="new"
         options={{ title: "Nuevo presupuesto", presentation: "modal", animation: "slide_from_bottom" }}
       />
+      <Stack.Screen
+        name="[id]"
+        options={{ title: "Editar presupuesto", presentation: "modal", animation: "slide_from_bottom" }}
+      />
     </Stack>
   );
 }

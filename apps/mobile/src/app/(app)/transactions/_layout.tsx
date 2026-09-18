@@ -16,10 +16,6 @@ export default function TransactionsLayout() {
       }}
     >
       <Stack.Screen name="index" options={{ title: "Transacciones" }} />
-      <Stack.Screen
-        name="new"
-        options={{ title: "Nueva transacción", presentation: "modal", animation: "slide_from_bottom" }}
-      />
     </Stack>
   );
 }
