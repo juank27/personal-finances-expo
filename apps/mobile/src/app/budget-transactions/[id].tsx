@@ -117,7 +117,7 @@ export default function BudgetTransactions() {
             ) : null
           }
           renderItem={({ item, index }: { item: Transaction; index: number }) => (
-            <Animated.View entering={FadeInDown.delay(Math.min(index, 8) * 40)} layout={LinearTransition}>
+            <Animated.View entering={FadeInDown.delay(Math.min(index, 8) * 40)} layout={LinearTransition.springify()}>
               <Pressable onPress={() => router.push(`/transaction/${item.id}`)}>
                 <Card className="mb-2 flex-row items-center justify-between">
                   <View className="flex-1">

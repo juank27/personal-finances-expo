@@ -1,5 +1,5 @@
 import type { Category, TransactionType } from "@finanzas/shared";
-import { createCategorySchema } from "@finanzas/validators";
+import { createCategorySchema, updateCategorySchema } from "@finanzas/validators";
 import { Ionicons } from "@expo/vector-icons";
 import { useForm } from "@tanstack/react-form";
 import { useColorScheme } from "nativewind";
@@ -13,8 +13,20 @@ import { FormField } from "@/components/form-field";
 import { SegmentedControl } from "@/components/segmented-control";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { useArchiveCategory, useCategories, useCreateCategory } from "@/hooks/use-categories";
+import {
+  useArchiveCategory,
+  useCategories,
+  useCreateCategory,
+  useUpdateCategory,
+} from "@/hooks/use-categories";
 import { useSession } from "@/lib/session";
 
 const TYPE_OPTIONS: { label: string; value: TransactionType }[] = [
@@ -31,11 +43,13 @@ function CategorySection({
   categories,
   userId,
   onArchive,
+  onEdit,
 }: {
   title: string;
   categories: Category[];
   userId?: string;
   onArchive: (id: string) => void;
+  onEdit: (category: Category) => void;
 }) {
   const { colorScheme } = useColorScheme();
   const dangerColor = DANGER_ICON_COLOR[colorScheme ?? "light"];
@@ -51,19 +65,28 @@ function CategorySection({
             key={category.id}
             entering={FadeInDown.delay(Math.min(index, 8) * 40)}
             exiting={FadeOutRight}
-            layout={LinearTransition}
+            layout={LinearTransition.springify()}
           >
             <Card className="flex-row items-center gap-3">
               <CategoryBadge categoryId={category.id} icon={category.icon} size="sm" />
               <Text className="flex-1 text-foreground">{category.name}</Text>
               {category.user_id === userId ? (
-                <Ionicons
-                  name="archive-outline"
-                  size={18}
-                  color={dangerColor}
-                  hitSlop={12}
-                  onPress={() => onArchive(category.id)}
-                />
+                <View className="flex-row items-center gap-3">
+                  <Ionicons
+                    name="create-outline"
+                    size={18}
+                    color={colorScheme === "dark" ? "#A1A1AA" : "#6B7280"}
+                    hitSlop={12}
+                    onPress={() => onEdit(category)}
+                  />
+                  <Ionicons
+                    name="archive-outline"
+                    size={18}
+                    color={dangerColor}
+                    hitSlop={12}
+                    onPress={() => onArchive(category.id)}
+                  />
+                </View>
               ) : null}
             </Card>
           </Animated.View>
@@ -78,7 +101,12 @@ export default function Categories() {
   const { data: categories, isLoading } = useCategories();
   const createCategory = useCreateCategory();
   const archiveCategory = useArchiveCategory();
+  const updateCategory = useUpdateCategory();
   const [formError, setFormError] = useState<string | null>(null);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editIcon, setEditIcon] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
 
   const form = useForm({
     defaultValues: { name: "", icon: "", type: "expense" as TransactionType },
@@ -109,6 +137,25 @@ export default function Categories() {
     ]);
   }
 
+  function openEdit(category: Category) {
+    setEditError(null);
+    setEditName(category.name);
+    setEditIcon(category.icon ?? "");
+    setEditingCategory(category);
+  }
+
+  async function handleSaveEdit() {
+    if (!editingCategory) return;
+    setEditError(null);
+    try {
+      const parsed = updateCategorySchema.parse({ name: editName, icon: editIcon });
+      await updateCategory.mutateAsync({ id: editingCategory.id, input: parsed });
+      setEditingCategory(null);
+    } catch (err) {
+      setEditError(err instanceof z.ZodError ? err.issues[0].message : "Error al guardar");
+    }
+  }
+
   const expense = categories?.filter((c) => c.type === "expense") ?? [];
   const income = categories?.filter((c) => c.type === "income") ?? [];
 
@@ -125,12 +172,14 @@ export default function Categories() {
             categories={expense}
             userId={session?.user.id}
             onArchive={handleArchive}
+            onEdit={openEdit}
           />
           <CategorySection
             title="Ingresos"
             categories={income}
             userId={session?.user.id}
             onArchive={handleArchive}
+            onEdit={openEdit}
           />
         </>
       )}
@@ -172,6 +221,36 @@ export default function Categories() {
           onPress={form.handleSubmit}
         />
       </Card>
+
+      <Dialog
+        open={!!editingCategory}
+        onOpenChange={(open) => !open && setEditingCategory(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar categoría</DialogTitle>
+          </DialogHeader>
+
+          <FormField label="Nombre">
+            <Input value={editName} onChangeText={setEditName} />
+          </FormField>
+
+          <FormField label="Ícono (ej: pricetag)">
+            <Input value={editIcon} onChangeText={setEditIcon} />
+          </FormField>
+
+          {editError ? <Text className="text-danger">{editError}</Text> : null}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              title="Cancelar"
+              onPress={() => setEditingCategory(null)}
+            />
+            <Button title="Guardar" loading={updateCategory.isPending} onPress={handleSaveEdit} />
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </ScrollView>
   );
 }

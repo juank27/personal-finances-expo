@@ -95,7 +95,7 @@ export default function BudgetsList() {
               <Animated.View
                 entering={FadeInUp.delay(Math.min(index, 8) * 60)}
                 exiting={FadeOutLeft}
-                layout={LinearTransition}
+                layout={LinearTransition.springify()}
                 className="mb-4"
               >
                 <Card className="flex-row items-center gap-3">

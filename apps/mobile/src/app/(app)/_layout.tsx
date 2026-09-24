@@ -37,6 +37,8 @@ export default function AppLayout() {
         tabBarActiveTintColor: theme.tabBarActive,
         tabBarInactiveTintColor: theme.tabBarInactive,
         tabBarStyle: { backgroundColor: theme.card, borderTopColor: theme.border },
+        // Cross-fades into the next tab's screen instead of an instant, jarring swap.
+        animation: "fade",
       }}
     >
       <Tabs.Screen

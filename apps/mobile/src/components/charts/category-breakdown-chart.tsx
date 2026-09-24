@@ -86,7 +86,9 @@ export function CategoryBreakdownChart({
           }}
         >
           <PolarChart data={pieData} labelKey="label" valueKey="value" colorKey="color">
-            <Pie.Chart innerRadius="67%" />
+            <Pie.Chart innerRadius="67%">
+              {() => <Pie.Slice animate={{ type: "spring", damping: 15, stiffness: 90 }} />}
+            </Pie.Chart>
           </PolarChart>
           <View
             style={{

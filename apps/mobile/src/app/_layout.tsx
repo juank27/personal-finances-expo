@@ -3,7 +3,9 @@ import "../../global.css";
 import { PortalHost } from "@rn-primitives/portal";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
+import * as SystemUI from "expo-system-ui";
 import { useColorScheme } from "nativewind";
+import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { queryClient } from "@/lib/query-client";
@@ -21,6 +23,13 @@ function RootNavigator() {
   const isSkiaReady = useSkiaWebReady();
   const { colorScheme } = useColorScheme();
   const theme = THEME_COLORS[colorScheme ?? "light"];
+
+  // Keeps the native root window background in sync with the current theme. Without this,
+  // Android's window background defaults to white, so any screen/modal open or close
+  // transition briefly flashes white underneath the animation — most visible in dark mode.
+  useEffect(() => {
+    SystemUI.setBackgroundColorAsync(theme.background);
+  }, [theme.background]);
 
   if (isLoading || !isSkiaReady) return null;
 

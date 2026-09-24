@@ -25,6 +25,18 @@ export function useCreateCategory() {
   });
 }
 
+export function useUpdateCategory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdateCategoryInput }) =>
+      apiFetch<{ data: Category }>(`/categories/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: categoriesKey }),
+  });
+}
+
 export function useArchiveCategory() {
   const queryClient = useQueryClient();
   return useMutation({

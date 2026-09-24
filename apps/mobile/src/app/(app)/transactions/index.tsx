@@ -121,7 +121,7 @@ export default function TransactionsList() {
           </Text>
         </Animated.View>
       ) : (
-        <Animated.View layout={LinearTransition} className="flex-1">
+        <Animated.View layout={LinearTransition.springify()} className="flex-1">
           <FlatList
             data={rows}
             keyExtractor={(row, index) =>
@@ -145,7 +145,7 @@ export default function TransactionsList() {
                 // silently breaks touch hit-testing on rows near a header (the trash icon
                 // looks like it's there but taps land on stale coordinates).
                 return (
-                  <Animated.View layout={LinearTransition}>
+                  <Animated.View layout={LinearTransition.springify()}>
                     <Text className="mb-2 mt-1 text-xs font-semibold uppercase text-muted-foreground">
                       {row.label}
                     </Text>
@@ -159,7 +159,7 @@ export default function TransactionsList() {
                 <Animated.View
                   entering={FadeInDown.delay(Math.min(index, 8) * 40)}
                   exiting={FadeOutLeft}
-                  layout={LinearTransition}
+                  layout={LinearTransition.springify()}
                 >
                   <Card className="mb-2 flex-row items-center justify-between">
                     <Pressable
