@@ -12,11 +12,13 @@ import { BudgetRing } from "@/components/budget-ring";
 import { CategoryBadge } from "@/components/category-badge";
 import { CategoryBreakdownChart } from "@/components/charts/category-breakdown-chart";
 import { MonthSelector } from "@/components/month-selector";
+import { TransactionSourceIcon } from "@/components/transaction-source-icon";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useBudgets } from "@/hooks/use-budgets";
 import { useCategories } from "@/hooks/use-categories";
+import { useEmailSyncCheck } from "@/hooks/use-email-sync";
 import { useExpenseSummary } from "@/hooks/use-expense-summary";
 import { useTransactions } from "@/hooks/use-transactions";
 import { getCategoryColor } from "@/lib/category-colors";
@@ -44,6 +46,9 @@ export default function Home() {
     0,
     RECENT_EXPENSES_LIMIT
   );
+  // Lazy sync: no cron/webhook backend, so this fires on Home mount instead. Cheap no-op
+  // server-side when there's no active Gmail connection.
+  useEmailSyncCheck(true);
 
   const categoryById = useMemo(() => {
     const map = new Map<string, Category>();
@@ -191,10 +196,13 @@ export default function Home() {
                       <Text className="font-medium text-foreground" numberOfLines={1}>
                         {category?.name ?? "Sin categoría"}
                       </Text>
-                      <Text className="text-xs text-muted-foreground" numberOfLines={1}>
-                        {transaction.date}
-                        {transaction.note ? ` · ${transaction.note}` : ""}
-                      </Text>
+                      <View className="flex-row items-center gap-1">
+                        <TransactionSourceIcon source={transaction.source} color={theme.track} />
+                        <Text className="text-xs text-muted-foreground" numberOfLines={1}>
+                          {transaction.date}
+                          {transaction.note ? ` · ${transaction.note}` : ""}
+                        </Text>
+                      </View>
                     </View>
                     <AmountText amount={transaction.amount} type={transaction.type} />
                   </Card>

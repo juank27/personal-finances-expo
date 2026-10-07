@@ -65,18 +65,45 @@ export async function getTransaction(userId: string, transactionId: string): Pro
   return transaction;
 }
 
+// Postgres unique_violation — thrown by the partial unique index on
+// transactions.source_message_id when the email-sync pipeline re-processes a Gmail
+// message it already imported. Callers should treat this as "already imported", not a
+// real error (see email-sync.service.ts).
+export class DuplicateSourceMessageError extends Error {
+  constructor(public sourceMessageId: string) {
+    super(`Transaction already imported for source_message_id=${sourceMessageId}`);
+  }
+}
+
 export async function createTransaction(
   userId: string,
-  input: CreateTransactionInput
+  input: CreateTransactionInput,
+  options?: { source?: "manual" | "email-ai"; sourceMessageId?: string }
 ): Promise<Transaction> {
   assertNoGroup(input.group_id);
 
-  const [transaction] = await sql<Transaction[]>`
-    INSERT INTO transactions (user_id, category_id, amount, type, date, note)
-    VALUES (${userId}, ${input.category_id}, ${input.amount}, ${input.type}, ${input.date}, ${input.note ?? null})
-    RETURNING *
-  `;
-  return transaction;
+  try {
+    const [transaction] = await sql<Transaction[]>`
+      INSERT INTO transactions (user_id, category_id, amount, type, date, note, source, source_message_id)
+      VALUES (
+        ${userId}, ${input.category_id}, ${input.amount}, ${input.type}, ${input.date}, ${input.note ?? null},
+        ${options?.source ?? "manual"}, ${options?.sourceMessageId ?? null}
+      )
+      RETURNING *
+    `;
+    return transaction;
+  } catch (err) {
+    if (
+      options?.sourceMessageId &&
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code?: string }).code === "23505"
+    ) {
+      throw new DuplicateSourceMessageError(options.sourceMessageId);
+    }
+    throw err;
+  }
 }
 
 export async function updateTransaction(

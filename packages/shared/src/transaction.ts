@@ -1,5 +1,7 @@
 import type { TransactionType } from "./category";
 
+export type TransactionSource = "manual" | "email-ai";
+
 export interface Transaction {
   id: string;
   user_id: string;
@@ -9,5 +11,7 @@ export interface Transaction {
   type: TransactionType;
   date: string;
   note: string | null;
+  source: TransactionSource;
+  source_message_id: string | null;
   created_at: string;
 }

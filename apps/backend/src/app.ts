@@ -3,6 +3,8 @@ import express from "express";
 import { errorHandler } from "./middleware/error-handler";
 import { budgetsRouter } from "./modules/budgets/budgets.routes";
 import { categoriesRouter } from "./modules/categories/categories.routes";
+import { emailConnectionsRouter } from "./modules/email-connections/email-connections.routes";
+import { emailSyncRouter } from "./modules/email-sync/email-sync.routes";
 import { profilesRouter } from "./modules/profiles/profiles.routes";
 import { summaryRouter } from "./modules/summary/summary.routes";
 import { transactionsRouter } from "./modules/transactions/transactions.routes";
@@ -21,5 +23,7 @@ app.use("/transactions", transactionsRouter);
 app.use("/budgets", budgetsRouter);
 app.use("/summary", summaryRouter);
 app.use("/profiles", profilesRouter);
+app.use("/email-connections", emailConnectionsRouter);
+app.use("/email-sync", emailSyncRouter);
 
 app.use(errorHandler);

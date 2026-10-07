@@ -9,8 +9,17 @@ import { FormField } from "@/components/form-field";
 import { SegmentedControl } from "@/components/segmented-control";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useConnectGmail, useDisconnectGmail, useEmailConnection } from "@/hooks/use-email-connection";
 import { useProfile, useUpdateProfile } from "@/hooks/use-profile";
 import { useSession } from "@/lib/session";
 import { supabase } from "@/lib/supabase";
@@ -91,6 +100,98 @@ function ProfileForm() {
   );
 }
 
+function lastSyncedLabel(lastSyncedAt: string | null): string {
+  if (!lastSyncedAt) return "Todavía no se ha sincronizado";
+  return `Última sincronización: ${new Intl.DateTimeFormat("es", {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(lastSyncedAt))}`;
+}
+
+function EmailConnectionCard() {
+  const { data: connection, isLoading } = useEmailConnection();
+  const connectGmail = useConnectGmail();
+  const disconnectGmail = useDisconnectGmail();
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+
+  if (isLoading || !connection) {
+    return (
+      <Card className="gap-3">
+        <Text className="text-lg font-semibold text-foreground">Registro automático por correo</Text>
+        <Skeleton className="h-10 w-full rounded-lg" />
+      </Card>
+    );
+  }
+
+  const needsReconnect = connection.connected && connection.status !== "active";
+
+  return (
+    <Card className="gap-3">
+      <Text className="text-lg font-semibold text-foreground">Registro automático por correo</Text>
+      <Text className="text-sm text-muted-foreground">
+        Conecta tu Gmail para que las notificaciones de tu banco se registren solas.
+      </Text>
+
+      {!connection.connected ? (
+        <Button
+          title="Conectar Gmail"
+          loading={connectGmail.isPending}
+          onPress={() => connectGmail.mutate()}
+        />
+      ) : needsReconnect ? (
+        <View className="gap-2">
+          <Text className="text-danger">
+            Se perdió el acceso a {connection.email}. Reconecta para seguir registrando movimientos.
+          </Text>
+          <Button
+            title="Reconectar Gmail"
+            loading={connectGmail.isPending}
+            onPress={() => connectGmail.mutate()}
+          />
+        </View>
+      ) : (
+        <View className="gap-2">
+          <Text className="text-foreground">{connection.email}</Text>
+          <Text className="text-xs text-muted-foreground">
+            {lastSyncedLabel(connection.last_synced_at)}
+          </Text>
+          <Button
+            title="Desconectar"
+            variant="outline"
+            onPress={() => setConfirmDisconnect(true)}
+          />
+        </View>
+      )}
+
+      <Dialog open={confirmDisconnect} onOpenChange={setConfirmDisconnect}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Desconectar Gmail</DialogTitle>
+            <DialogDescription>
+              Dejaremos de leer tu correo. Las transacciones ya registradas no se eliminan.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" title="Cancelar" onPress={() => setConfirmDisconnect(false)} />
+            <Button
+              variant="destructive"
+              title="Desconectar"
+              loading={disconnectGmail.isPending}
+              onPress={() => {
+                disconnectGmail.mutate(undefined, {
+                  onSuccess: () => setConfirmDisconnect(false),
+                });
+              }}
+            />
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
 export default function Account() {
   const { preference, setPreference } = useThemePreference();
 
@@ -103,6 +204,8 @@ export default function Account() {
           <Text className="text-lg font-semibold text-foreground">Perfil</Text>
           <ProfileForm />
         </Card>
+
+        <EmailConnectionCard />
 
         <Card className="gap-3">
           <Text className="text-lg font-semibold text-foreground">Apariencia</Text>

@@ -9,6 +9,7 @@ import Animated, { FadeInDown, FadeOutLeft, LinearTransition } from "react-nativ
 import { AmountText } from "@/components/amount-text";
 import { CategoryBadge } from "@/components/category-badge";
 import { SegmentedControl } from "@/components/segmented-control";
+import { TransactionSourceIcon } from "@/components/transaction-source-icon";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -21,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCategories } from "@/hooks/use-categories";
+import { useEmailSyncCheck } from "@/hooks/use-email-sync";
 import {
   useDeleteTransaction,
   useTransactions,
@@ -64,6 +66,7 @@ export default function TransactionsList() {
     useTransactions({ type: filter === "all" ? undefined : filter });
   const deleteTransaction = useDeleteTransaction();
   const [pendingDelete, setPendingDelete] = useState<Transaction | null>(null);
+  useEmailSyncCheck(true);
 
   const categoryById = useMemo(() => {
     const map = new Map<string, Category>();
@@ -171,10 +174,15 @@ export default function TransactionsList() {
                         <Text className="font-medium text-foreground" numberOfLines={1}>
                           {category?.name ?? "Sin categoría"}
                         </Text>
-                        {transaction.note ? (
-                          <Text className="text-xs text-muted-foreground" numberOfLines={1}>
-                            {transaction.note}
-                          </Text>
+                        {transaction.note || transaction.source === "email-ai" ? (
+                          <View className="flex-row items-center gap-1">
+                            <TransactionSourceIcon source={transaction.source} color={theme.track} />
+                            {transaction.note ? (
+                              <Text className="text-xs text-muted-foreground" numberOfLines={1}>
+                                {transaction.note}
+                              </Text>
+                            ) : null}
+                          </View>
                         ) : null}
                       </View>
                     </Pressable>

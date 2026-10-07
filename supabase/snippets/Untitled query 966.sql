@@ -1,0 +1,1 @@
+select * from transactions where source = 'email-ai' order by created_at desc limit 1
