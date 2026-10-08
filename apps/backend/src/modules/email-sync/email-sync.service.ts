@@ -14,6 +14,7 @@ import {
 } from "../email-connections/email-connections.service";
 import { createTransaction, DuplicateSourceMessageError } from "../transactions/transactions.service";
 import { extractBankTransaction } from "./email-extraction";
+import { resolveCategoryId, resolveEmailDate } from "./email-sync-helpers";
 
 export interface EmailSyncResult {
   status:
@@ -30,11 +31,9 @@ export interface EmailSyncResult {
 const STALE_LOCK_MS = 2 * 60 * 1000;
 const FIRST_SYNC_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
-function toISODate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-async function getValidAccessToken(row: EmailConnectionRow): Promise<string> {
+// Exported so the historical backfill (Parte 3, email-backfill.service.ts) can reuse the
+// exact same refresh-on-expiry logic instead of duplicating it.
+export async function getValidAccessToken(row: EmailConnectionRow): Promise<string> {
   const expiresAt = row.access_token_expires_at ? new Date(row.access_token_expires_at) : null;
   const stillValid = row.access_token_encrypted && expiresAt && expiresAt.getTime() > Date.now() + 30_000;
 
@@ -105,20 +104,14 @@ export async function checkAndSync(userId: string): Promise<EmailSyncResult> {
           continue;
         }
 
-        let categoryId = extraction.category_id;
-        if (!categoryId || !categories.some((c) => c.id === categoryId)) {
-          const fallbackName = extraction.type === "expense" ? "Otros gastos" : "Otros ingresos";
-          const fallback = categories.find((c) => c.is_default && c.name === fallbackName);
-          categoryId = fallback?.id ?? null;
-        }
+        const categoryId = resolveCategoryId(categories, extraction);
 
         if (!categoryId) {
           skipped++;
           continue;
         }
 
-        const emailDate = new Date(email.date);
-        const date = Number.isNaN(emailDate.getTime()) ? toISODate(new Date()) : toISODate(emailDate);
+        const date = resolveEmailDate(email.date);
 
         await createTransaction(
           userId,
@@ -143,8 +136,8 @@ export async function checkAndSync(userId: string): Promise<EmailSyncResult> {
     }
 
     // Only move the watermark forward when every message in this window was actually
-    // resolved (imported or skipped). A message that errored (e.g. a transient Gemini
-    // 503) must stay inside the next run's window — advancing past it here would lose it
+    // resolved (imported or skipped). A message that errored (e.g. a transient provider
+    // 5xx) must stay inside the next run's window — advancing past it here would lose it
     // permanently. Re-scanning already-imported messages next run is safe and cheap: the
     // unique source_message_id index turns them into a no-op skip, not a duplicate.
     if (errors === 0) {

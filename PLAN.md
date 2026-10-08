@@ -24,9 +24,9 @@ El usuario quiere que la app registre gastos/ingresos automáticamente, leyendo 
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_CLIENT_SECRET: z.string().min(1),
   GOOGLE_OAUTH_REDIRECT_URI: z.string().url(),
-  GEMINI_API_KEY: z.string().min(1),
+  ANTHROPIC_API_KEY: z.string().min(1),
   EMAIL_SYNC_ENCRYPTION_KEY: z.string().min(1), // 32 bytes base64
-  EMAIL_SYNC_LLM_MODEL: z.string().default("gemini-flash-latest"),
+  EMAIL_SYNC_LLM_MODEL: z.string().default("claude-haiku-4-5"),
   EMAIL_SYNC_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.7),
   EMAIL_SYNC_MAX_MESSAGES_PER_RUN: z.coerce.number().int().positive().default(50),
   ```
@@ -57,19 +57,19 @@ create policy "email_connections_self" on public.email_connections
 `sync_in_progress`/`sync_started_at` son el lock perezoso (si una ejecución previa quedó "stale" > 2 min, se permite reintentar).
 
 ### 3. Sincronización perezosa — `POST /email-sync/check`
-**Endpoint dedicado, no acoplado a `GET /transactions`**: el sync implica llamadas externas (Gmail + Gemini) que pueden tardar segundos y fallar por razones ajenas a la BD; acoplarlo haría que cualquier pantalla de transacciones dependa de la disponibilidad de esos servicios. El móvil lo llama al montar el Home, sin bloquear el resto de la carga.
+**Endpoint dedicado, no acoplado a `GET /transactions`**: el sync implica llamadas externas (Gmail + Claude) que pueden tardar segundos y fallar por razones ajenas a la BD; acoplarlo haría que cualquier pantalla de transacciones dependa de la disponibilidad de esos servicios. El móvil lo llama al montar el Home, sin bloquear el resto de la carga.
 
 Algoritmo (`apps/backend/src/modules/email-sync/email-sync.service.ts`):
 1. Buscar conexión activa del usuario; si no existe o no está `active` → `skipped_no_connection`.
 2. Si `sync_in_progress` (no stale) → `skipped_in_progress`. Si no, marcar `sync_in_progress=true`, capturar `syncStartedAt = now()` **antes** de consultar Gmail.
 3. Refrescar `access_token` si venció. Si Google responde `invalid_grant` (usuario revocó acceso) → `status='revoked'` + `last_error`, terminar — esto es lo que la UI de cuenta detecta para pedir "reconectar".
 4. Ventana: `since = last_synced_at ?? (created_at - 7 días)` (primera sync no importa todo el historial).
-5. `GET /gmail/v1/users/me/messages?q=after:{since} -category:promotions -category:social&maxResults=...` (filtro interno para no gastar tokens de Gemini en spam obvio — la IA sigue decidiendo si ES un movimiento real, sin listas de remitentes que el usuario tenga que mantener).
+5. `GET /gmail/v1/users/me/messages?q=after:{since} -category:promotions -category:social&maxResults=...` (filtro interno para no gastar tokens de Claude en spam obvio — la IA sigue decidiendo si ES un movimiento real, sin listas de remitentes que el usuario tenga que mantener).
 6. Por mensaje: obtener body completo (`format=full`), decodificar (`text/plain` preferido), truncar ~4000 caracteres.
-7. Extracción estructurada con **Gemini** (paquete oficial `@google/genai`, confirmado contra el repo real `googleapis/js-genai` — no `@google/generative-ai`, que es el SDK viejo). El schema de extracción se define una sola vez con Zod (fuente de verdad, mismo estilo que el resto del proyecto), se convierte a JSON Schema con `zod-to-json-schema` para pasárselo a Gemini vía `responseJsonSchema`, y se vuelve a validar con el mismo schema Zod al leer la respuesta (nunca confiar ciegamente en que el modelo devolvió el shape exacto):
+7. Extracción estructurada con **Claude** (SDK oficial `@anthropic-ai/sdk`, patrón confirmado contra la skill/documentación oficial de Anthropic). El schema de extracción se define una sola vez con Zod (fuente de verdad, mismo estilo que el resto del proyecto) y se pasa directo a `client.messages.parse()` vía `zodOutputFormat()` — la validación contra el schema la hace el propio SDK (`response.parsed_output`), sin necesidad de reconvertir a JSON Schema a mano ni de re-parsear con Zod aparte:
    ```ts
-   import { GoogleGenAI } from "@google/genai";
-   import { zodToJsonSchema } from "zod-to-json-schema";
+   import Anthropic from "@anthropic-ai/sdk";
+   import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 
    const BankEmailExtraction = z.object({
      is_bank_transaction: z.boolean(),
@@ -80,17 +80,19 @@ Algoritmo (`apps/backend/src/modules/email-sync/email-sync.service.ts`):
      category_id: z.string().uuid().nullable(),
    });
 
-   const response = await gemini.models.generateContent({
+   const response = await claude.messages.parse({
      model: config.EMAIL_SYNC_LLM_MODEL,
-     contents: buildEmailPrompt(email, categories), // incluye system + lista real de categorías del usuario en un solo prompt de texto
-     config: {
-       responseMimeType: "application/json",
-       responseJsonSchema: zodToJsonSchema(BankEmailExtraction),
+     max_tokens: 512,
+     messages: [{ role: "user", content: buildEmailPrompt(email, categories) }], // incluye system + lista real de categorías del usuario en un solo prompt de texto
+     output_config: {
+       format: zodOutputFormat(BankEmailExtraction),
      },
    });
 
-   const extraction = BankEmailExtraction.parse(JSON.parse(response.text));
+   if (!response.parsed_output) throw new Error("Claude no devolvió un resultado parseable");
+   const extraction = response.parsed_output;
    ```
+   Reintentos: el SDK de Anthropic ya reintenta automáticamente errores 429/5xx con backoff exponencial (`max_retries: 2` por defecto) — a diferencia del cliente de Gemini, **no hace falta** escribir un `generateWithRetry` manual.
 8. Si `!extraction.is_bank_transaction` o `extraction.confidence < EMAIL_SYNC_MIN_CONFIDENCE` → no crear nada, solo avanzar el watermark (para no re-preguntarle a la IA por el mismo correo). El umbral de confianza se aplica aquí (evitar falsos positivos que contaminen presupuestos/reportes), no en la resolución de categoría.
 9. Si sí es un movimiento válido: validar que el `category_id` devuelto exista de verdad en las categorías del usuario (nunca confiar ciegamente en que el modelo no alucinó un uuid). **Si no matchea con ninguna categoría real, usar la categoría existente "Otros gastos" o "Otros ingresos"** (ya son parte de las categorías default del sistema — ver `packages/constants/src/default-categories.ts` / `supabase/seed.sql`, no hace falta crear ninguna categoría nueva "Sin clasificar"; se resuelve buscando `is_default=true AND type=X AND name='Otros gastos'|'Otros ingresos'`).
 10. Insertar reusando `createTransaction` existente, extendida con un tercer parámetro opcional (no rompe el `POST /transactions` manual, que sigue llamándola con 2 argumentos):
@@ -104,7 +106,7 @@ Algoritmo (`apps/backend/src/modules/email-sync/email-sync.service.ts`):
     Colisión de `source_message_id` (mensaje ya procesado) se trata como "ya importado", no como error — red de idempotencia adicional al watermark.
 11. Al terminar: `last_synced_at = syncStartedAt`, `sync_in_progress = false`.
 
-**Modelo recomendado**: `gemini-flash-latest` (confirmado como alias real vigente en el SDK oficial). Es la gama rápida/económica de Gemini, apropiada para clasificación/extracción de texto corto ejecutada con alta frecuencia. Si al implementar existe una variante aún más económica tipo "flash-lite" en el catálogo vigente de modelos (verificar con `ai.models.list()` o la doc oficial en ese momento, no asumir el nombre exacto de antemano), es la primera candidata para bajar costo. Todo esto queda configurable vía `EMAIL_SYNC_LLM_MODEL` sin tocar código.
+**Modelo recomendado**: `claude-haiku-4-5` (el más barato/rápido de la familia Claude vigente — $1/$5 por millón de tokens de entrada/salida). Elegido explícitamente por el usuario para este caso de uso: clasificación/extracción de texto corto ejecutada con alta frecuencia (cada correo nuevo), donde un modelo más caro (Sonnet 5, Opus 5) sería gasto innecesario y además eleva el riesgo de toparse con límites de tasa rápido. Queda configurable vía `EMAIL_SYNC_LLM_MODEL` sin tocar código, igual que antes.
 
 ### 4. Trazabilidad — columna `source` en `transactions`
 `supabase/migrations/20260924000001_add_transaction_source_and_message_id.sql`:
@@ -123,13 +125,13 @@ create unique index transactions_source_message_id_idx
 - `apps/backend/src/lib/crypto.ts` (nuevo, AES-256-GCM — `encrypt(plaintext)`/`decrypt(ciphertext)`, guarda IV + auth tag junto al ciphertext, ej. codificados en base64 separados por `:`)
 - `apps/backend/src/lib/oauth-state.ts` (nuevo, `signState({uid, exp})`/`verifyState(token)` con HMAC-SHA256, `verifyState` devuelve `null` si expiró o la firma no matchea, nunca lanza)
 - `apps/backend/src/lib/gmail-client.ts` (nuevo, fetch nativo — sin paquete `googleapis`, coherente con el estilo minimalista sin ORM del proyecto): `getAuthorizationUrl(state)`, `exchangeCodeForTokens(code)`, `refreshAccessToken(refreshToken)` (debe distinguir `invalid_grant` de otros errores), `listMessages(accessToken, query, maxResults)`, `getMessage(accessToken, id)`
-- `apps/backend/src/lib/gemini.ts` (nuevo, cliente singleton `new GoogleGenAI({ apiKey: config.GEMINI_API_KEY })`, igual patrón que `lib/supabase.ts`)
+- `apps/backend/src/lib/anthropic.ts` (nuevo, cliente singleton `new Anthropic({ apiKey: config.ANTHROPIC_API_KEY })`, igual patrón que `lib/supabase.ts`)
 - `apps/backend/src/modules/email-connections/{email-connections.routes.ts,email-connections.service.ts}` (nuevo)
 - `apps/backend/src/modules/email-sync/{email-sync.routes.ts,email-sync.service.ts}` (nuevo)
 - `apps/backend/src/modules/transactions/transactions.service.ts` (extender `createTransaction`)
 - `apps/backend/src/app.ts` (montar routers nuevos; el callback de Google queda fuera de `requireAuth`)
 - `apps/backend/src/config.ts`, `.env`/`.env.example` (env vars nuevas)
-- `apps/backend/package.json` (agregar `@google/genai` y `zod-to-json-schema`)
+- `apps/backend/package.json` (agregar `@anthropic-ai/sdk`)
 - `packages/shared/src/transaction.ts` (`source`, `source_message_id`)
 - `packages/shared/src/email-connection.ts` (nuevo tipo `EmailConnection`)
 - `supabase/migrations/20260924000000_add_email_connections.sql`
@@ -182,7 +184,7 @@ Llamado desde Home y desde `transactions/index.tsx`; al compartir `queryKey`, Ta
 2. Configurar pantalla de consentimiento OAuth (tipo Externo, scope `gmail.readonly`, agregar tu cuenta Gmail real como test user). En modo "Testing" los refresh tokens expiran a los 7 días — para uso continuo, pasar a "Production" (queda "no verificada", requiere aceptar un aviso de Google la primera vez, aceptable para uso personal).
 3. Crear credenciales OAuth "Web application", registrar como redirect URI tanto `http://localhost:4000/email-connections/google/callback` (pruebas del backend solo) como la URL HTTPS de ngrok (prueba real desde el teléfono).
 4. Correr `ngrok http 4000`, setear `GOOGLE_OAUTH_REDIRECT_URI` con esa URL HTTPS + `/email-connections/google/callback`.
-5. Conseguir una API key de Gemini (gratis) en [Google AI Studio](https://aistudio.google.com/apikey) y setearla como `GEMINI_API_KEY` en `apps/backend/.env`.
+5. Conseguir una API key de Anthropic en [console.anthropic.com](https://console.anthropic.com/settings/keys) y setearla como `ANTHROPIC_API_KEY` en `apps/backend/.env`. A diferencia de Google AI Studio, la API de Anthropic no tiene un tier gratuito con límite diario — requiere tener facturación configurada en la cuenta (prepago o tarjeta), pero no hay riesgo de "se acabaron las 20 solicitudes del día" como pasó con Gemini.
 
 ## Verificación end-to-end
 1. Aplicar las 2 migraciones nuevas (`npx supabase migration up` o `db reset`).
@@ -190,7 +192,7 @@ Llamado desde Home y desde `transactions/index.tsx`; al compartir `queryKey`, Ta
 3. Cancelar a medias → vuelve a "no conectado" sin error falso.
 4. Confirmar en la BD que `refresh_token_encrypted` no es texto plano.
 5. Enviar un correo de prueba con texto tipo notificación bancaria real a la cuenta conectada.
-6. Abrir el Home (o `POST /email-sync/check` vía curl) → verificar en logs que detecta el correo, llama a Gemini, crea la transacción con `source: "email-ai"`.
+6. Abrir el Home (o `POST /email-sync/check` vía curl) → verificar en logs que detecta el correo, llama a Claude, crea la transacción con `source: "email-ai"`.
 7. Repetir el sync sin correos nuevos → no duplica, `last_synced_at` avanza.
 8. Correo ambiguo/de categoría no anticipada → cae en "Otros gastos"/"Otros ingresos", no falla silenciosamente.
 9. Revocar acceso desde myaccount.google.com/permissions → siguiente sync marca `status='revoked'` con `last_error`, sin loop de reintentos; la UI de cuenta debe reflejar "reconectar".
@@ -200,7 +202,101 @@ Llamado desde Home y desde `transactions/index.tsx`; al compartir `queryKey`, Ta
 
 ## Nota sobre el proveedor de IA
 
-Este plan usa **Gemini** (`@google/genai`, paquete oficial confirmado contra `googleapis/js-genai`) en vez de Claude/Anthropic, a pedido explícito del usuario. La API de extracción estructurada usada es `ai.models.generateContent({ model, contents, config: { responseMimeType: "application/json", responseJsonSchema } })`, con un schema Zod como fuente de verdad (convertido a JSON Schema con `zod-to-json-schema`, y usado también para validar la respuesta antes de confiar en ella).
-- `supabase/migrations/20260924000001_add_transaction_source_and_message_id.sql` (nuevo)
+**Historial de la decisión**: el plan original (y la Parte 1 ya implementada) usaba Gemini (`@google/genai`) a pedido explícito del usuario. Luego, también a pedido explícito, se decidió migrar todo el feature (Parte 1 ya implementada + Parte 3 nueva) a **Claude/Anthropic** (`@anthropic-ai/sdk`), con **`claude-haiku-4-5`** como modelo — elegido sobre Sonnet 5/Opus 5 específicamente porque esta es una tarea de clasificación/extracción de texto corto de alta frecuencia, y el incidente real de cuota agotada con Gemini (ver abajo) dejó claro que el costo/límite de tasa por llamada importa en este caso de uso.
 
-Nada de esto se verificó todavía (ni typecheck ni pruebas). Nada de la Parte 2 (mobile) se tocó.
+La API de extracción estructurada usada ahora es `client.messages.parse({ model, max_tokens, messages, output_config: { format: zodOutputFormat(Schema) } })`, con el mismo schema Zod como fuente de verdad — el SDK valida la respuesta automáticamente (`response.parsed_output`), sin necesidad del paso manual de convertir a JSON Schema y re-validar que tenía la versión con Gemini. El SDK de Anthropic también reintenta 429/5xx automáticamente (`max_retries: 2` por defecto), así que el `generateWithRetry` manual que se había agregado para Gemini ya no es necesario.
+
+## Estado actual
+
+**Parte 1 y 2**: implementadas y verificadas end-to-end sobre **Gemini** — `pnpm typecheck` limpio, conexión OAuth real probada, correo de prueba clasificado y registrado como transacción `source: "email-ai"`. Dos ajustes salieron de esas pruebas reales y **siguen vigentes tras la migración a Anthropic** (son independientes del proveedor de IA):
+- **Watermark no debe avanzar si hubo errores**: si algún correo falla al procesarse, `last_synced_at` ya NO avanza al final de la corrida — se reintenta solo en el siguiente sync, sin duplicar gracias al índice único de `source_message_id`.
+- (Ya no aplica con Anthropic) El reintento manual 429/503 que se había agregado para los errores de sobrecarga de Gemini se **retira** en la migración — el SDK de Anthropic ya reintenta esos casos por su cuenta.
+
+**Pendiente de implementar**: la migración real del código de Parte 1 de Gemini → Anthropic (reemplazar `lib/gemini.ts` por `lib/anthropic.ts`, reescribir `email-extraction.ts` con `client.messages.parse()`, actualizar `config.ts`/`.env`/`package.json`, y volver a probar el flujo end-to-end con una `ANTHROPIC_API_KEY` real) — y la Parte 3 completa (nunca implementada, diseñada directamente sobre Anthropic desde el inicio).
+
+## Parte 3 — Importación histórica por rango de fechas
+
+### Contexto
+El sync perezoso (Parte 1) solo mira hacia adelante desde `last_synced_at` (o 7 días atrás en la primera conexión). El usuario quiere poder pedir, bajo demanda, "revisa mi correo entre el `{from}` y el `{to}` y registra todo lo que encuentres" — por ejemplo para importar meses o años de historial de una sola vez, sin esperar a que cada correo hubiera sido "visto" por el sync normal.
+
+### Decisiones de diseño
+1. **Endpoint y job separados del sync perezoso**: un rango largo puede implicar cientos de correos — no cabe en una sola request HTTP síncrona sin arriesgar timeout (Express/ngrok), y la UI necesita mostrar progreso. Se maneja como un **job en segundo plano** con su propio estado persistido, igual de aislado que `/email-sync/check` lo está del CRUD de transacciones.
+2. **No toca `last_synced_at`**: el backfill es ortogonal al watermark del sync perezoso — corre sobre un rango explícito pedido por el usuario, no interfiere con la ventana incremental normal.
+3. **Un job "running" a la vez por usuario**: evita que dos corridas pidan lo mismo dos veces y dupliquen gasto de cuota.
+4. **Paginación real de Gmail**: `listMessages` hoy solo trae una página. Se agrega `listAllMessages(accessToken, query)` que sigue `nextPageToken` hasta agotar todos los mensajes del rango (sin tope artificial — si el rango tiene 300 correos, se procesan los 300).
+5. **Query del rango**: `after:{epoch_from} before:{epoch_to_exclusive} -category:promotions -category:social` (mismo filtro de categorías que el sync normal). Los operadores `after:`/`before:` de Gmail trabajan a granularidad de día, así que `to` se convierte sumando 1 día antes de pasar a epoch, para incluir el día completo.
+6. **Optimización de costo al reintentar**: antes de llamar a Claude por cada correo del rango, se hace un chequeo barato en BD (`source_message_id IN (...)` contra `transactions`) y se saltan los que ya están importados — si el job se interrumpe a la mitad (por el motivo que sea) y el usuario corre el mismo rango después, no se vuelve a pagar por los correos que ya se importaron con éxito.
+7. **Reutilización total de Parte 1**: `getValidAccessToken`, `extractBankTransaction` (sobre Claude, con los reintentos 429/5xx ya manejados por el propio SDK de Anthropic), `createTransaction` + `DuplicateSourceMessageError`, resolución de categoría fallback — se reusan tal cual.
+
+### Base de datos — `email_backfill_jobs`
+```sql
+create table public.email_backfill_jobs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  date_from date not null,
+  date_to date not null,
+  status text not null default 'running' check (status in ('running', 'completed', 'failed')),
+  total_messages int,
+  processed int not null default 0,
+  imported int not null default 0,
+  skipped int not null default 0,
+  errors int not null default 0,
+  last_error text,
+  created_at timestamptz not null default now(),
+  finished_at timestamptz
+);
+
+alter table public.email_backfill_jobs enable row level security;
+create policy "email_backfill_jobs_self" on public.email_backfill_jobs
+  for all using (user_id = auth.uid());
+```
+`total_messages` queda `null` hasta que termina de paginar Gmail (paso previo al procesamiento); los contadores (`processed`, `imported`, `skipped`, `errors`) se actualizan **después de cada mensaje**, no al final, para que el polling del móvil muestre progreso real.
+
+### Algoritmo (`apps/backend/src/modules/email-sync/email-backfill.service.ts`)
+1. `startBackfill(userId, from, to)`:
+   - Verifica conexión activa; si no existe/no está `active` → error 409.
+   - Verifica que no haya otro job `running` para este usuario → error 409.
+   - Inserta el job con `status='running'`.
+   - Dispara `runBackfill(jobId)` **sin esperar** (`void runBackfill(jobId).catch(...)`) y responde de inmediato `{ jobId }`.
+2. `runBackfill(jobId)` (corre en background, misma instancia del proceso Node — suficiente para un backend single-user sin hosting):
+   - Refresca el access token (igual que el sync perezoso; si `invalid_grant` → marca el job `failed` con `last_error` y termina).
+   - Pagina con `listAllMessages` usando el query del rango; actualiza `total_messages`.
+   - Consulta de una vez los `source_message_id` ya existentes en `transactions` para ese usuario dentro de esos ids, para saltarlos sin llamar a Claude.
+   - Por cada mensaje restante: `getMessage` → `extractBankTransaction` → mismo criterio de confianza/umbral/categoría-fallback que el sync perezoso → `createTransaction({ source: "email-ai", sourceMessageId })`. Actualiza `processed`/`imported`/`skipped`/`errors` tras cada uno (incluyendo los saltados por ya-importados, contados como `skipped`).
+   - Al terminar de recorrer todos los mensajes: `status='completed'`, `finished_at=now()`.
+3. `getBackfillStatus(userId, jobId)`: lee el job (valida que sea del usuario), devuelve el estado actual tal cual está en BD — el móvil hace polling de esto.
+
+### Contrato de endpoints nuevos
+```
+POST /email-sync/backfill        (auth) body { from: "YYYY-MM-DD", to: "YYYY-MM-DD" } → { data: { jobId } }
+GET  /email-sync/backfill/:jobId (auth) → { data: { status, total_messages, processed, imported, skipped, errors, last_error } }
+```
+Validación de `{ from, to }` con un schema nuevo en `packages/validators` (mismo estilo que `createBudgetSchema`: `z.string().date()` + `.refine(to >= from)`).
+
+### Mobile/UX
+Todo dentro de la tarjeta ya existente "Registro automático por correo" en `account.tsx`, como una sección adicional "Importar historial" (solo visible si la conexión está `active`):
+- Un campo "Rango de fechas" que abre un **`DateRangePickerDialog` nuevo** — no hay picker de rango en el proyecto, pero sí un `DatePickerDialog` de fecha única (`apps/mobile/src/components/date-picker-dialog.tsx`) con grid de calendario 100% custom (sin dependencia nueva, confirmado: el proyecto no usa `@react-native-community/datetimepicker` ni ninguna librería de fechas). Se construye reusando exactamente las mismas piezas (`MonthSelector`, `getMonthGrid`, `addMonths`, `monthStringFromDate` de `lib/date.ts`), pero con estado `{ start, end }`: primer tap fija `start`, segundo tap fija `end` (si el segundo tap es antes que `start`, se invierten), con los días intermedios resaltados como "en rango" entre los dos extremos (`bg-primary`). Mismo componente `Dialog` base, mismos labels en español, cero dependencias nuevas.
+- Botón "Importar" (deshabilitado si no hay rango completo o si ya hay un job corriendo) → `useStartBackfill` crea el job.
+- Mientras `status === 'running'`: `useBackfillStatus(jobId)` con `refetchInterval: 2000` muestra "Procesando {processed}/{total_messages} correos — {imported} importados".
+- Al llegar a `completed`: invalida `["transactions"]`, `budgetsKey`, `["expense-summary"]`; muestra el resumen final y oculta la barra de progreso.
+- Si la pantalla de Cuenta se desmonta y se vuelve a abrir con un job todavía `running` (se guarda el `jobId` activo en el estado de React, se pierde si cierras la app — comportamiento aceptable, el job sigue corriendo en el backend igual y basta con no cerrar la pantalla; opcionalmente se podría exponer "¿hay un job corriendo?" vía `GET /email-connections` extendido, pero no es necesario para la v1).
+
+### Archivos nuevos/modificados
+Backend:
+- `supabase/migrations/..._add_email_backfill_jobs.sql` (nuevo)
+- `apps/backend/src/lib/gmail-client.ts`: agregar `listAllMessages(accessToken, query)` (pagina con `nextPageToken`)
+- `apps/backend/src/modules/email-sync/email-backfill.service.ts` (nuevo)
+- `apps/backend/src/modules/email-sync/email-sync.routes.ts`: agregar `POST /backfill`, `GET /backfill/:jobId`
+- `packages/validators/src/email-sync.ts` (nuevo): `createEmailBackfillSchema`
+- `packages/shared/src/email-backfill.ts` (nuevo tipo `EmailBackfillJob`)
+
+Mobile:
+- `apps/mobile/src/hooks/use-email-backfill.ts` (nuevo: `useStartBackfill`, `useBackfillStatus`)
+- `apps/mobile/src/components/date-range-picker-dialog.tsx` (nuevo, mismo patrón que `date-picker-dialog.tsx` pero con selección `{ start, end }`)
+- `apps/mobile/src/app/(app)/account.tsx`: sección "Importar historial"
+
+### Riesgos a tener en cuenta
+- Rangos largos pueden tardar varios minutos (un correo a la vez, con su llamada a Claude cada uno) y, en rangos muy grandes, toparse con límites de tasa de la cuenta de Anthropic — el job queda `completed` igual (no es un fallo fatal, solo cuenta `errors > 0`), y se puede volver a correr el mismo rango más tarde: lo ya importado se salta sin pagar de nuevo por esos correos, solo reintenta lo que falló.
+- Nada de esto usa cron/worker separado — `runBackfill` corre en el mismo proceso del backend; si reinicias el backend (`tsx watch` recarga en cada cambio de archivo) a mitad de un job, ese job queda huérfano en `running` para siempre. Se puede mitigar luego con el mismo patrón de "stale lock" que ya existe en `email_connections.sync_in_progress`, pero se deja fuera del alcance inicial por simplicidad.
+
+Nada de la Parte 3 está implementado todavía — es la especificación para implementar a continuación.

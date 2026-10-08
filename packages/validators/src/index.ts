@@ -4,3 +4,4 @@ export * from "./transaction";
 export * from "./budget";
 export * from "./summary";
 export * from "./profile";
+export * from "./email-sync";

@@ -1,8 +1,13 @@
 import type { Category } from "@finanzas/shared";
-import { zodToJsonSchema } from "zod-to-json-schema";
-import { z } from "zod";
+import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+// zodOutputFormat()'s type signature requires a zod/v4 schema specifically — the `zod`
+// package (classic v3 API, used everywhere else in this project) and `zod/v4` are
+// structurally different ZodType hierarchies even though both ship inside the same
+// `zod` npm package from 3.25+. This is the only file in the project that needs the v4
+// import; the resulting z.infer<> shape is identical to what a v3 schema would produce.
+import { z } from "zod/v4";
 import { config } from "../../config";
-import { gemini } from "../../lib/gemini";
+import { claude } from "../../lib/anthropic";
 import type { GmailMessage } from "../../lib/gmail-client";
 
 export const bankEmailExtractionSchema = z.object({
@@ -15,14 +20,6 @@ export const bankEmailExtractionSchema = z.object({
 });
 
 export type BankEmailExtraction = z.infer<typeof bankEmailExtractionSchema>;
-
-// zod-to-json-schema's generic signature hits TS's type-instantiation depth limit on this
-// schema's nested ZodNullable<ZodEnum<...>> members — the `unknown` hop breaks the
-// structural inference that triggers it, without weakening the runtime call at all.
-const schemaForJsonSchema = bankEmailExtractionSchema as unknown as Parameters<
-  typeof zodToJsonSchema
->[0];
-const RESPONSE_JSON_SCHEMA = zodToJsonSchema(schemaForJsonSchema);
 
 function buildPrompt(email: GmailMessage, categories: Category[]): string {
   const categoryList = categories
@@ -52,38 +49,22 @@ Cuerpo:
 ${email.bodyText}`;
 }
 
-const RETRYABLE_STATUS_CODES = new Set([429, 503]);
-const MAX_RETRIES = 2;
-
-// Gemini flash models routinely return a transient 503 "high demand" error — without a
-// retry, that single blip permanently loses the email: the sync watermark still advances
-// past it once the run finishes (see email-sync.service.ts), so it's never re-checked.
-async function generateWithRetry(
-  request: Parameters<typeof gemini.models.generateContent>[0]
-): Promise<Awaited<ReturnType<typeof gemini.models.generateContent>>> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await gemini.models.generateContent(request);
-    } catch (err) {
-      const status = (err as { status?: number } | undefined)?.status;
-      if (!status || !RETRYABLE_STATUS_CODES.has(status) || attempt >= MAX_RETRIES) throw err;
-      await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt));
-    }
-  }
-}
-
 export async function extractBankTransaction(
   email: GmailMessage,
   categories: Category[]
 ): Promise<BankEmailExtraction> {
-  const response = await generateWithRetry({
+  const response = await claude.messages.parse({
     model: config.EMAIL_SYNC_LLM_MODEL,
-    contents: buildPrompt(email, categories),
-    config: {
-      responseMimeType: "application/json",
-      responseJsonSchema: RESPONSE_JSON_SCHEMA,
+    max_tokens: 512,
+    messages: [{ role: "user", content: buildPrompt(email, categories) }],
+    output_config: {
+      format: zodOutputFormat(bankEmailExtractionSchema),
     },
   });
 
-  return bankEmailExtractionSchema.parse(JSON.parse(response.text ?? ""));
+  if (!response.parsed_output) {
+    throw new Error("Claude no devolvió un resultado parseable");
+  }
+
+  return response.parsed_output;
 }

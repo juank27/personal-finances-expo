@@ -98,7 +98,7 @@ export async function refreshAccessToken(
   }
 }
 
-interface GmailMessageRef {
+export interface GmailMessageRef {
   id: string;
 }
 
@@ -118,6 +118,36 @@ export async function listMessages(
 
   const body = (await res.json()) as { messages?: GmailMessageRef[] };
   return body.messages ?? [];
+}
+
+// Used by the historical backfill (Parte 3) — a date range can span hundreds of messages,
+// so unlike listMessages (one page, capped by EMAIL_SYNC_MAX_MESSAGES_PER_RUN for the lazy
+// sync) this follows nextPageToken until Gmail has no more pages left.
+export async function listAllMessages(
+  accessToken: string,
+  query: string
+): Promise<GmailMessageRef[]> {
+  const allMessages: GmailMessageRef[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const params = new URLSearchParams({ q: query, maxResults: "100" });
+    if (pageToken) params.set("pageToken", pageToken);
+
+    const res = await fetch(`${GMAIL_API_BASE}/messages?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!res.ok) {
+      throw new Error(`Gmail listAllMessages failed: ${res.status} ${await res.text()}`);
+    }
+
+    const body = (await res.json()) as { messages?: GmailMessageRef[]; nextPageToken?: string };
+    allMessages.push(...(body.messages ?? []));
+    pageToken = body.nextPageToken;
+  } while (pageToken);
+
+  return allMessages;
 }
 
 export async function getProfile(accessToken: string): Promise<{ emailAddress: string }> {

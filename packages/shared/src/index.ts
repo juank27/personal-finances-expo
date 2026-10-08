@@ -6,3 +6,4 @@ export * from "./group";
 export * from "./api";
 export * from "./summary";
 export * from "./email-connection";
+export * from "./email-backfill";

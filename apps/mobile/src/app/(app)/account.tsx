@@ -1,10 +1,11 @@
 import { updateProfileSchema } from "@finanzas/validators";
 import { useForm } from "@tanstack/react-form";
 import { useEffect, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { z } from "zod";
 
+import { DateRangePickerDialog, type DateRange } from "@/components/date-range-picker-dialog";
 import { FormField } from "@/components/form-field";
 import { SegmentedControl } from "@/components/segmented-control";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useBackfillStatus, useStartBackfill } from "@/hooks/use-email-backfill";
 import { useConnectGmail, useDisconnectGmail, useEmailConnection } from "@/hooks/use-email-connection";
 import { useProfile, useUpdateProfile } from "@/hooks/use-profile";
 import { useSession } from "@/lib/session";
@@ -110,6 +112,79 @@ function lastSyncedLabel(lastSyncedAt: string | null): string {
   }).format(new Date(lastSyncedAt))}`;
 }
 
+function formatRangeLabel(range: DateRange): string {
+  if (!range.start || !range.end) return "Elegir rango de fechas";
+  const fmt = (d: string) =>
+    new Intl.DateTimeFormat("es", { day: "numeric", month: "short", year: "numeric" }).format(
+      new Date(`${d}T00:00:00`)
+    );
+  return `${fmt(range.start)} – ${fmt(range.end)}`;
+}
+
+function ImportHistorySection() {
+  const [range, setRange] = useState<DateRange>({ start: null, end: null });
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [jobId, setJobId] = useState<string | null>(null);
+
+  const startBackfill = useStartBackfill();
+  const { data: job } = useBackfillStatus(jobId, jobId !== null);
+
+  const isRunning = job?.status === "running";
+  const canImport = range.start !== null && range.end !== null && !isRunning;
+
+  function handleImport() {
+    if (!range.start || !range.end) return;
+    startBackfill.mutate(
+      { from: range.start, to: range.end },
+      { onSuccess: (data) => setJobId(data.jobId) }
+    );
+  }
+
+  return (
+    <View className="gap-2 border-t border-border pt-3">
+      <Text className="text-sm font-semibold text-foreground">Importar historial</Text>
+      <Text className="text-xs text-muted-foreground">
+        Revisa tu correo en un rango de fechas y registra los movimientos que encuentre.
+      </Text>
+
+      <Pressable
+        onPress={() => setPickerOpen(true)}
+        disabled={isRunning}
+        className="rounded-lg border border-border px-3 py-2"
+      >
+        <Text className={range.start && range.end ? "text-foreground" : "text-muted-foreground"}>
+          {formatRangeLabel(range)}
+        </Text>
+      </Pressable>
+
+      <Button
+        title="Importar"
+        variant="outline"
+        disabled={!canImport}
+        loading={startBackfill.isPending}
+        onPress={handleImport}
+      />
+
+      {job ? (
+        <Text className="text-xs text-muted-foreground">
+          {job.status === "running"
+            ? `Procesando ${job.processed}/${job.total_messages ?? "…"} correos — ${job.imported} importados`
+            : job.status === "completed"
+              ? `Listo: ${job.imported} importados, ${job.skipped} omitidos, ${job.errors} errores`
+              : `No se pudo completar: ${job.last_error ?? "error desconocido"}`}
+        </Text>
+      ) : null}
+
+      <DateRangePickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        value={range}
+        onChange={setRange}
+      />
+    </View>
+  );
+}
+
 function EmailConnectionCard() {
   const { data: connection, isLoading } = useEmailConnection();
   const connectGmail = useConnectGmail();
@@ -162,6 +237,8 @@ function EmailConnectionCard() {
             variant="outline"
             onPress={() => setConfirmDisconnect(true)}
           />
+
+          <ImportHistorySection />
         </View>
       )}
 
